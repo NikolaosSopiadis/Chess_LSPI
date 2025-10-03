@@ -5,10 +5,10 @@ from chess_core.piece import Piece as p
 
 class Board:
     
-    def __init__(self, height=8, width=8):
-        self._height:     int = height
-        self._width:      int = width
-        self._grid_size: int = height * width
+    def __init__(self, ranks=8, files=8):
+        self._ranks:     int = ranks
+        self._files:     int = files
+        self._grid_size: int = ranks * files
 
         self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
         self._board[0] = p.WHITE_ROOK
