@@ -33,28 +33,28 @@ class Piece:
     TYPE_MASK: int  = 0b0111
     COLOUR_MASK:int = 0b1000
 
-    def makePiece(self, pieceType: int, pieceColour: int) -> int:
-        return pieceType | pieceColour
+    def make_piece(self, piece_type: int, piece_colour: int) -> int:
+        return piece_type | piece_colour
 
-    def isColour(self, piece: int, colour: int):
+    def is_colour(self, piece: int, colour: int):
         return (piece & self.COLOUR_MASK) == colour and piece != 0
 
-    def isWhite(self, piece: int):
-        return self.isColour(piece, self.WHITE)
+    def is_white(self, piece: int):
+        return self.is_colour(piece, self.WHITE)
 
-    def pieceColour(self, piece: int):
+    def piece_colour(self, piece: int):
         return piece & self.COLOUR_MASK
 
-    def pieceType(self, piece: int):
+    def piece_type(self, piece: int):
         return piece & self.TYPE_MASK
 
-    def isOrthogonalSlider(self, piece: int):
-        return self.pieceType(piece) == self.ROOK or self.pieceType(piece) == self.QUEEN
+    def is_orthogonal_slider(self, piece: int):
+        return self.piece_type(piece) == self.ROOK or self.piece_type(piece) == self.QUEEN
 
-    def isDiagonalSlider(self, piece: int):
-        return self.pieceType(piece) == self.BISHOP or self.pieceType(piece) == self.QUEEN
+    def is_diagonal_slider(self, piece: int):
+        return self.piece_type(piece) == self.BISHOP or self.piece_type(piece) == self.QUEEN
 
-    def isSlidingPiece(self, piece: int):
-        return self.isOrthogonalSlider(piece) or self.isDiagonalSlider(piece)
+    def is_sliding_piece(self, piece: int):
+        return self.is_orthogonal_slider(piece) or self.is_diagonal_slider(piece)
     
 
