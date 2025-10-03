@@ -1,6 +1,6 @@
 pytest
 pytest-mock
 pytest-cov
-pygame
+pygame-ce
 pygame_gui
 numpy
