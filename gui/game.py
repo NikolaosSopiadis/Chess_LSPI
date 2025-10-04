@@ -15,17 +15,11 @@ if TYPE_CHECKING:
 class Game:
     def __init__(self) -> None:
         self._ctrl: Controller = Controller()
-        self._view: MainWindow = self._ctrl.get_view()
+        self._view: MainWindow = self._ctrl.get_view() # TODO: Uncouple view from game
     
     def run(self) -> None:
 
-        dt: float = 0.1
-
-        clock = self._view.get_clock()
-
         while self._ctrl.get_state() == Controller.RUNNING:
-            dt = clock.tick(144) / 1000
-            dt = max(0.001, min(0.1, dt))
             
             for event in pg.event.get():
                 if event.type == pg.QUIT:
@@ -33,7 +27,7 @@ class Game:
                     
                 self._view.process_events(event)
                     
-            self._view.draw(dt)
+            self._view.draw()
                     
         print("Exiting")
         pg.quit()

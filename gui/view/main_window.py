@@ -31,6 +31,9 @@ class MainWindow:
         
         self._clock = pg.Clock()
         self._manager = pgg.UIManager((width, height))
+
+        self._max_fps: int = 144
+        self._dt:      float = self._clock.tick(self._max_fps) / 1000
         
         # Set up the game window
         self._screen = pg.display.set_mode((width, height))
@@ -41,24 +44,17 @@ class MainWindow:
                                                self._board_width, self._board_height, 
                                                self._manager)
         
-        self._test_img = pg.image.load_sized_svg('assets/pieces/king-w.svg', (80,80)).convert_alpha()
-        # self._test_img = pg.image.load('assets/Final.png').convert()
-        
-    def update_image(self, x: int, y: int) -> None:
-        self._screen.fill((50, 50, 50))
-        self._screen.blit(self._test_img, (x,y))
+    def _update_clock(self) -> None:
+        self._dt = self._clock.tick(self._max_fps) / 1000
+        self._dt = max(0.001, min(0.1, self._dt))
         
     def process_events(self, event):
         self._manager.process_events(event)
         
-    def draw(self, dt: float):
-        self._manager.update(dt)
+    def draw(self):
+        self._manager.update(self._dt)
+        self._screen.fill((50, 50, 50))
+
         self._board.draw_chess_board()
         self._manager.draw_ui(self._screen)
         pg.display.flip()
-                    
-    def get_screen(self):
-        return self._screen       
-
-    def get_clock(self):
-        return self._clock
