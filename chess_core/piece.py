@@ -31,30 +31,38 @@ class Piece:
     
     # Bit Masks
     TYPE_MASK: int  = 0b0111
-    COLOUR_MASK:int = 0b1000
+    COLOR_MASK:int = 0b1000
 
-    def make_piece(self, piece_type: int, piece_colour: int) -> int:
-        return piece_type | piece_colour
+    @staticmethod
+    def make_piece(piece_type: int, piece_color: int) -> int:
+        return piece_type | piece_color
 
-    def is_colour(self, piece: int, colour: int):
-        return (piece & self.COLOUR_MASK) == colour and piece != 0
+    @staticmethod
+    def is_colour(piece: int, colour: int):
+        return (piece & Piece.COLOR_MASK) == colour and piece != 0
 
-    def is_white(self, piece: int):
-        return self.is_colour(piece, self.WHITE)
+    @staticmethod
+    def is_white(piece: int):
+        return Piece.is_colour(piece, Piece.WHITE)
 
-    def piece_colour(self, piece: int):
-        return piece & self.COLOUR_MASK
+    @staticmethod
+    def piece_color(piece: int):
+        return piece & Piece.COLOR_MASK
 
-    def piece_type(self, piece: int):
-        return piece & self.TYPE_MASK
+    @staticmethod
+    def piece_type(piece: int):
+        return piece & Piece.TYPE_MASK
 
-    def is_orthogonal_slider(self, piece: int):
-        return self.piece_type(piece) == self.ROOK or self.piece_type(piece) == self.QUEEN
+    @staticmethod
+    def is_orthogonal_slider(piece: int):
+        return Piece.piece_type(piece) == Piece.ROOK or Piece.piece_type(piece) == Piece.QUEEN
 
-    def is_diagonal_slider(self, piece: int):
-        return self.piece_type(piece) == self.BISHOP or self.piece_type(piece) == self.QUEEN
+    @staticmethod
+    def is_diagonal_slider(piece: int):
+        return Piece.piece_type(piece) == Piece.BISHOP or Piece.piece_type(piece) == Piece.QUEEN
 
-    def is_sliding_piece(self, piece: int):
-        return self.is_orthogonal_slider(piece) or self.is_diagonal_slider(piece)
+    @staticmethod
+    def is_sliding_piece(piece: int):
+        return Piece.is_orthogonal_slider(piece) or Piece.is_diagonal_slider(piece)
     
 
