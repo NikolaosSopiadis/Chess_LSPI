@@ -28,8 +28,6 @@ class Sidebar:
             text          = "Game Controls",
             manager       = manager,
             container     = self._sidebar,
-            
-            
         )
         
         self._test_button: pgg.elements.UIButton = pgg.elements.UIButton(

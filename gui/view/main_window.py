@@ -21,7 +21,7 @@ class MainWindow:
         
         self._width:  int = width
         self._height: int = height
-        self._title:   str = title
+        self._title:  str = title
         
         self._sidebar_width:  int = width - height
         self._sidebar_height: int = height
