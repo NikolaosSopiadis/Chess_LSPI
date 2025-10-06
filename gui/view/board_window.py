@@ -27,7 +27,7 @@ class BoardWindow:
         self._square_size: int = self._height // max(self._files, self._ranks)
         
         
-        self._hovers_over_square: int = -1 # -1 if none else idx
+        self._hovers_over: tuple[int, int] = (-1,-1) # (-1,-1) if none else (rank, file)
         
         self._board_rect: pg.Rect = pg.Rect(x0, y0, width, height)
         
@@ -59,9 +59,10 @@ class BoardWindow:
                 color: tuple[int, int, int] = light_color if (r + f) % 2 == 0 else dark_color
                 pg.draw.rect(self._board_surface, color, square)
                 
-                piece_idx: int = self._get_piece_idx(r, f)
+                piece_idx: int = self._get_piece_idx(f, r)
 
                 font: pg.font.Font = pg.font.Font(None, 40)
+                # x,y not drawn correctly for flipped board
                 msg:           str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
                 text:   pg.Surface = font.render(msg, True, (255, 255, 255))
                 self._board_surface.blit(text, square)
@@ -73,7 +74,7 @@ class BoardWindow:
     def flip_board(self) -> None:
         self._board_flipped = not self._board_flipped
         
-    def _get_piece_idx(self, rank: int, file: int) -> int:
+    def _get_piece_idx(self, file: int, rank: int) -> int:
         if self._board_flipped:
             piece_idx: int = self._files - file - 1 + (rank * self._files)
         else:
@@ -95,14 +96,29 @@ class BoardWindow:
 
         # if mouse is outside of board, then no piece is selected
         if not self._board_rect.collidepoint(mouse_pos):
-            self._hovers_over_square = -1
+            self._hovers_over_square = (-1, -1)
             return 
-        self._hovers_over_square = self._idx_from_mouse_pos(mouse_pos)
+        self._hovers_over_square = self._file_rank_from_mouse_pos(mouse_pos)
         print(self._hovers_over_square)
         
     def _idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
+        f, r = self._file_rank_from_mouse_pos(mouse_pos) 
+        return self._get_piece_idx(f, r)
+    
+    def _file_rank_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> tuple[int, int]:
         x: int = int(mouse_pos[0] - self._board_rect.left)
         y: int = int(mouse_pos[1] - self._board_rect.top)
-        f: int = x // self._square_size
-        r: int = y // self._square_size
-        return self._get_piece_idx(r, f)
+
+        if self._board_flipped:
+            f: int = self._files - (x // self._square_size) - 1
+            r: int = y // self._square_size
+        else:
+            f: int = x // self._square_size
+            r: int = self._ranks - (y // self._square_size) - 1
+        return f, r
+    
+    # def _draw_hover(self) -> None:
+    #     f, r-
+    #     square:             pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
+    #     color: tuple[int, int, int] = light_color if (r + f) % 2 == 0 else dark_color
+    #     pg.draw.rect(self._board_surface, color, square)
