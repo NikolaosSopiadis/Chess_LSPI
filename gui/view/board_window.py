@@ -48,6 +48,7 @@ class BoardWindow:
         
         self._draw_chess_board()
         self._draw_hover()
+        self._draw_selected()
         self._board.set_image(self._board_surface)  # update the displayed image 
         
     def _draw_chess_board(self) -> None:
@@ -117,7 +118,32 @@ class BoardWindow:
         f, r = self._hovers_over
         if f == -1 or r == -1:
             return
-        square:             pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
-        color: tuple[int, int, int, int] = (200, 200, 0, 128)
+        hover_color: tuple[int, int, int, int] = (200, 200, 0, 128)
+        self._draw_square(f, r, hover_color)
+        
+    def select_square(self) -> None:
+        f, r = self._hovers_over
+        if f == -1 or r == -1:
+            self._selected = (-1, -1)
+            return
+
+        f_s, r_s = self._selected
+        if f == f_s and r == r_s:
+            self._selected = (-1, -1)
+            print(f"unselected ({f}, {r})")
+            return
+        
+        self._selected = (f, r)
+
+    def _draw_square(self, file: int, rank: int, color: tuple[int, int, int, int]) -> None:
+        square:             pg.Rect = pg.Rect(file * self._square_size, rank * self._square_size, self._square_size, self._square_size)
         pg.draw.rect(self._overlay_surface, color, square)
         self._board_surface.blit(self._overlay_surface)
+
+    def _draw_selected(self) -> None:
+        f, r = self._selected
+        if f == -1 or r == -1:
+            return
+        selected_color: tuple[int, int, int, int] = (200, 200, 200, 128)
+        self._draw_square(f, r, selected_color)
+        print(f"selected ({f}, {r})")

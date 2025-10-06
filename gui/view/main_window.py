@@ -62,3 +62,6 @@ class MainWindow:
         
     def update_mouse_pos(self, pos: tuple[float, float]) -> None:
         self._board.check_hover(pos)
+        
+    def select_square(self):
+        self._board.select_square()

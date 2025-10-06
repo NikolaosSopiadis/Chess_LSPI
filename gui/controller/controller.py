@@ -99,7 +99,7 @@ class Controller:
                 self._view.update_mouse_pos(event.pos)
                 
             case pg.MOUSEBUTTONDOWN:
-                print("Mouse down")
+                self._view.select_square()
                 
             case pg.MOUSEBUTTONUP:
                 print("Mouse up")
