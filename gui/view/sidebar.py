@@ -9,11 +9,13 @@ if TYPE_CHECKING:
 
 class Sidebar:
     
-    def __init__(self, x0: int, y0: int, width: int, height: int, manager: pgg.UIManager) -> None:
+    def __init__(self, x0: int, y0: int, width: int, height: int, manager: pgg.UIManager, controller: Controller) -> None:
         self._x0:     int = x0
         self._y0:     int = 0
         self._width:  int = width
         self._height: int = height
+        
+        self._ctrl: Controller = controller
         
         self._sidebar_rect: pg.Rect = pg.Rect(x0, self._y0, width, height)
 
@@ -36,3 +38,4 @@ class Sidebar:
             manager       = manager,
             container     = self._sidebar
         )
+        
