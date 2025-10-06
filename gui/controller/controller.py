@@ -17,8 +17,11 @@ class Controller:
         
         self._view: MainWindow = MainWindow(self, 800*2, 600*2, "Chess")
         
-        grid_size = self._ranks * self._files
-        self._board: npt.NDArray[np.uint8] = np.zeros(grid_size, dtype=np.uint8)
+        self._grid_size = self._ranks * self._files
+        self._init_board()
+
+    def _init_board(self) -> None:
+        self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
         self._board[0] = p.WHITE_ROOK
         self._board[1] = p.WHITE_KNIGHT
         self._board[2] = p.WHITE_BISHOP
@@ -27,7 +30,11 @@ class Controller:
         self._board[5] = p.WHITE_BISHOP 
         self._board[6] = p.WHITE_KNIGHT
         self._board[7] = p.WHITE_ROOK
+        for i in range(8, 16):
+            self._board[i] = p.WHITE_PAWN
 
+        for i in range(48, 56):
+            self._board[i] = p.BLACK_PAWN
         self._board[56] = p.BLACK_ROOK
         self._board[57] = p.BLACK_KNIGHT
         self._board[58] = p.BLACK_BISHOP
@@ -111,8 +118,29 @@ class Controller:
                 
                 match event.ui_element:
                     case self._view._sidebar._test_button:
-                        print("Button pressed")
-                        self._board[20] = self._board[0]
-                        self._board[0] = p.NONE
-                        
-                
+                        self._init_board()
+                    
+    def move_piece(self, source: int, destination: int) -> bool:
+        """Attempt to move a piece from source square to destination square
+
+        Args:
+            source (int): source square index
+            destination (int): destination square index
+
+        Returns:
+            bool: True if success, False if illegal move
+        """
+        # Check if move is legal
+
+        # Out of bounds
+        if source < 0 or source >= self._grid_size:
+            return False
+        
+        if destination < 0 or destination >= self._grid_size:
+            return False
+        
+        # Make move
+        self._board[destination] = self._board[source]
+        self._board[source]      = p.NONE
+        
+        return True

@@ -68,7 +68,7 @@ class BoardWindow:
                 color: tuple[int, int, int] = light_color if (r + f) % 2 == 0 else dark_color
                 pg.draw.rect(self._board_surface, color, square)
                 
-                piece_idx: int = self._get_piece_idx(f, r)
+                piece_idx: int = self._get_idx(f, r)
 
                 font: pg.font.Font = pg.font.Font(None, 40)
                 # x,y not drawn correctly for flipped board
@@ -84,7 +84,7 @@ class BoardWindow:
     def flip_board(self) -> None:
         self._board_flipped = not self._board_flipped
         
-    def _get_piece_idx(self, file: int, rank: int) -> int:
+    def _get_idx(self, file: int, rank: int) -> int:
         if self._board_flipped:
             piece_idx: int = self._files - file - 1 + (rank * self._files)
         else:
@@ -115,7 +115,7 @@ class BoardWindow:
         
     def _get_idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
         f, r = self._file_rank_from_mouse_pos(mouse_pos) 
-        return self._get_piece_idx(f, r)
+        return self._get_idx(f, r)
     
     def _file_rank_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> tuple[int, int]:
         x: int = int(mouse_pos[0] - self._board_rect.left)
@@ -143,7 +143,7 @@ class BoardWindow:
         if f != f_clicked or r != r_clicked:
             self._selected = (-1, -1)
             return
-            
+
         # if clicked on active square, remove selection
         f_s, r_s = self._selected
         if f == f_s and r == r_s:
@@ -164,9 +164,12 @@ class BoardWindow:
         selected_color: tuple[int, int, int, int] = (200, 100, 0, 128)
         self._draw_square(f, r, selected_color)
         
-    def _pick_piece_up(self, mouse_pos) -> None:
-        if not self._mouse_clicked or self._picked_up_piece == -1:
-            return
+    def _pick_piece_up(self) -> None:
+        f, r = self._hovers_over
+        self._picked_up_piece   = self._get_idx(f, r)
+        self._mouse_clicked_pos = self._hovers_over
+        print(f"hovers over: {self._hovers_over}")
+        print(f"picked up piece: {self._picked_up_piece}")
         
         
     def _draw_picked_up_piece(self) -> None:
@@ -181,10 +184,14 @@ class BoardWindow:
     def set_mouse_clicked(self, clicked: bool) -> None:
         self._mouse_clicked = clicked
         if clicked:
-            f, r = self._hovers_over
-            self._picked_up_piece   = self._get_piece_idx(f, r)
-            self._mouse_clicked_pos = self._hovers_over
-            print(f"hovers over: {self._hovers_over}")
-            print(f"picked up piece: {self._picked_up_piece}")
+            self._pick_piece_up()
         else:
-            self._picked_up_piece = -1
+            self._place_piece_down()
+            
+    def _place_piece_down(self) -> None:
+        self._picked_up_piece = -1
+        f_src, r_src     = self._mouse_clicked_pos
+        f_dst, r_dst     = self._hovers_over
+        source:      int = self._get_idx(f_src, r_src)
+        destination: int = self._get_idx(f_dst, r_dst)
+        self._ctrl.move_piece(source, destination)
