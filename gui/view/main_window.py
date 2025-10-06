@@ -48,7 +48,7 @@ class MainWindow:
         self._dt = self._clock.tick(self._max_fps) / 1000
         self._dt = max(0.001, min(0.1, self._dt))
         
-    def process_events(self, event):
+    def manager_process_events(self, event):
         self._manager.process_events(event)
         
     def draw(self):

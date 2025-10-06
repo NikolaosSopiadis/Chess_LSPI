@@ -1,5 +1,6 @@
 import numpy as np
 import numpy.typing as npt
+import pygame as pg
 
 from gui.view.main_window import MainWindow
 from chess_core.piece import Piece as p     
@@ -79,4 +80,16 @@ class Controller:
                 raise FileNotFoundError(f"Could find corresponding asset for piece: {piece}")
         return folder_path + piece_type
 
-    
+    def handle_event(self, event: pg.event.Event) -> None:
+        
+        self._view.manager_process_events(event)
+        
+        match event.type:
+            case pg.QUIT:
+                self._state = self.STOPPED
+            
+            case pg.KEYDOWN:
+                
+                match event.key:
+                    case pg.K_q:
+                        print("q pressed")

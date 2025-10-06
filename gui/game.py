@@ -22,10 +22,7 @@ class Game:
         while self._ctrl.get_state() == Controller.RUNNING:
             
             for event in pg.event.get():
-                if event.type == pg.QUIT:
-                    self._ctrl.update_state(Controller.STOPPED)
-                    
-                self._view.process_events(event)
+                self._ctrl.handle_event(event)
                     
             self._view.draw()
                     
