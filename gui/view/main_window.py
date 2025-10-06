@@ -56,6 +56,6 @@ class MainWindow:
         self._manager.update(self._dt)
         self._screen.fill((50, 50, 50))
 
-        self._board.draw_chess_board()
+        self._board.draw()
         self._manager.draw_ui(self._screen)
         pg.display.flip()

@@ -28,6 +28,7 @@ class BoardWindow:
         
         
         self._hovers_over: tuple[int, int] = (-1,-1) # (-1,-1) if none else (rank, file)
+        self._selected:    tuple[int, int] = (-1,-1) # (-1,-1) if none else (rank, file)
         
         self._board_rect: pg.Rect = pg.Rect(x0, y0, width, height)
         
@@ -46,8 +47,13 @@ class BoardWindow:
             manager = manager,
             # container = self._board_panel
         )
+    
+    def draw(self) -> None:
+        self._draw_chess_board()
+        self._draw_hover()
+        self._board.set_image(self._board_surface)  # update the displayed image 
         
-    def draw_chess_board(self) -> None:
+    def _draw_chess_board(self) -> None:
         light_color: tuple[int, int, int] = (200, 180, 160)
         dark_color:  tuple[int, int, int] = (60, 50, 40)
         
@@ -69,7 +75,9 @@ class BoardWindow:
                 self._draw_piece(pieces[piece_idx], square, self._square_size)
                     
         # redraw board surface, then push it into the UIImage
-        self._board.set_image(self._board_surface)  # update the displayed image 
+        # draw_chess_board was the function resposible for drawing.
+        # now draw is the master function, thus set_image is move to it
+        # self._board.set_image(self._board_surface)  # update the displayed image 
         
     def flip_board(self) -> None:
         self._board_flipped = not self._board_flipped
@@ -92,14 +100,15 @@ class BoardWindow:
         sprite: pg.Surface = pg.image.load_sized_svg(sprite_path, (square_size, square_size)).convert_alpha()
         self._board_surface.blit(sprite, square)
         
+        
     def check_hover(self, mouse_pos: tuple[float, float]) -> None:
 
         # if mouse is outside of board, then no piece is selected
         if not self._board_rect.collidepoint(mouse_pos):
-            self._hovers_over_square = (-1, -1)
+            self._hovers_over = (-1, -1)
             return 
-        self._hovers_over_square = self._file_rank_from_mouse_pos(mouse_pos)
-        print(self._hovers_over_square)
+        self._hovers_over = self._file_rank_from_mouse_pos(mouse_pos)
+        print(self._hovers_over)
         
     def _idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
         f, r = self._file_rank_from_mouse_pos(mouse_pos) 
@@ -109,16 +118,19 @@ class BoardWindow:
         x: int = int(mouse_pos[0] - self._board_rect.left)
         y: int = int(mouse_pos[1] - self._board_rect.top)
 
-        if self._board_flipped:
-            f: int = self._files - (x // self._square_size) - 1
-            r: int = y // self._square_size
-        else:
-            f: int = x // self._square_size
-            r: int = self._ranks - (y // self._square_size) - 1
-        return f, r
+        f: int = x // self._square_size
+        r: int = y // self._square_size
+        return f,r
     
-    # def _draw_hover(self) -> None:
-    #     f, r-
-    #     square:             pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
-    #     color: tuple[int, int, int] = light_color if (r + f) % 2 == 0 else dark_color
-    #     pg.draw.rect(self._board_surface, color, square)
+    def _draw_hover(self) -> None:
+        # alpha doesn't work. I need to create a second surface for overlays and draw to it.
+        # Then I can blend the board surphace and the overlay surface
+        
+        f, r = self._hovers_over
+        if f == -1 or r == -1:
+            return
+        square:             pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
+        color: tuple[int, int, int, int] = (200, 200, 0, 100)
+        pg.draw.rect(self._board_surface, color, square)
+        print(f"x = {f*self._square_size}, y = {r * self._square_size}, length = {self._square_size}")
+        print(f"f,r = ({f}, {r}), idx = {self._get_piece_idx(f, r)}")
