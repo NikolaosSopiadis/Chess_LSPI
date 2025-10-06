@@ -130,7 +130,6 @@ class BoardWindow:
         f_s, r_s = self._selected
         if f == f_s and r == r_s:
             self._selected = (-1, -1)
-            print(f"unselected ({f}, {r})")
             return
         
         self._selected = (f, r)
@@ -144,6 +143,5 @@ class BoardWindow:
         f, r = self._selected
         if f == -1 or r == -1:
             return
-        selected_color: tuple[int, int, int, int] = (200, 200, 200, 128)
+        selected_color: tuple[int, int, int, int] = (200, 100, 0, 128)
         self._draw_square(f, r, selected_color)
-        print(f"selected ({f}, {r})")

@@ -17,6 +17,26 @@ class Controller:
         
         self._view: MainWindow = MainWindow(self, 800*2, 600*2, "Chess")
         
+        grid_size = self._ranks * self._files
+        self._board: npt.NDArray[np.uint8] = np.zeros(grid_size, dtype=np.uint8)
+        self._board[0] = p.WHITE_ROOK
+        self._board[1] = p.WHITE_KNIGHT
+        self._board[2] = p.WHITE_BISHOP
+        self._board[3] = p.WHITE_QUEEN
+        self._board[4] = p.WHITE_KING
+        self._board[5] = p.WHITE_BISHOP 
+        self._board[6] = p.WHITE_KNIGHT
+        self._board[7] = p.WHITE_ROOK
+
+        self._board[56] = p.BLACK_ROOK
+        self._board[57] = p.BLACK_KNIGHT
+        self._board[58] = p.BLACK_BISHOP
+        self._board[59] = p.BLACK_QUEEN
+        self._board[60] = p.BLACK_KING
+        self._board[61] = p.BLACK_BISHOP 
+        self._board[62] = p.BLACK_KNIGHT
+        self._board[63] = p.BLACK_ROOK
+        
     def get_state(self) -> int:
         return self._state
     
@@ -35,28 +55,7 @@ class Controller:
     
     def get_pieces_on_board(self) -> npt.NDArray[np.uint8]:
         # board: npt.NDArray[np.uint8] = model.get_board
-        
-        grid_size = self._ranks * self._files
-        board: npt.NDArray[np.uint8] = np.zeros(grid_size, dtype=np.uint8)
-        board[0] = p.WHITE_ROOK
-        board[1] = p.WHITE_KNIGHT
-        board[2] = p.WHITE_BISHOP
-        board[3] = p.WHITE_QUEEN
-        board[4] = p.WHITE_KING
-        board[5] = p.WHITE_BISHOP 
-        board[6] = p.WHITE_KNIGHT
-        board[7] = p.WHITE_ROOK
-
-        board[56] = p.BLACK_ROOK
-        board[57] = p.BLACK_KNIGHT
-        board[58] = p.BLACK_BISHOP
-        board[59] = p.BLACK_QUEEN
-        board[60] = p.BLACK_KING
-        board[61] = p.BLACK_BISHOP 
-        board[62] = p.BLACK_KNIGHT
-        board[63] = p.BLACK_ROOK
-        
-        return board
+        return self._board
     
     def get_piece_sprite(self, piece:int) -> str:
         color: str = "w" if p.is_white(piece) else "b"
@@ -109,5 +108,7 @@ class Controller:
                 match event.ui_element:
                     case self._view._sidebar._test_button:
                         print("Button pressed")
+                        self._board[20] = self._board[0]
+                        self._board[0] = p.NONE
                         
                 
