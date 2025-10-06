@@ -19,9 +19,9 @@ class MainWindow:
         
         self._ctrl: Controller = controller
         
-        self._widht:  int = width
+        self._width:  int = width
         self._height: int = height
-        self._tile:   str = title
+        self._title:   str = title
         
         self._sidebar_width:  int = width - height
         self._sidebar_height: int = height
@@ -39,7 +39,7 @@ class MainWindow:
         self._screen: pg.Surface = pg.display.set_mode((width, height))
         pg.display.set_caption(title)
 
-        self._sidebar:   Sidebar = Sidebar(self._board_width, 0, width, height, self._manager)
+        self._sidebar:   Sidebar = Sidebar(self._board_width, 0, self._sidebar_width, self._sidebar_height, self._manager)
         self._board: BoardWindow = BoardWindow(self._ctrl, 0, 0, 
                                                self._board_width, self._board_height, 
                                                self._manager)
@@ -52,6 +52,7 @@ class MainWindow:
         self._manager.process_events(event)
         
     def draw(self):
+        self._update_clock()
         self._manager.update(self._dt)
         self._screen.fill((50, 50, 50))
 

@@ -1,6 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 import pygame as pg
+import pygame_gui as pgg
 
 from gui.view.main_window import MainWindow
 from chess_core.piece import Piece as p     
@@ -92,4 +93,21 @@ class Controller:
                 
                 match event.key:
                     case pg.K_q:
-                        print("q pressed")
+                        self._state = self.STOPPED
+            
+            case pg.MOUSEMOTION:
+                print(f"Mouse moved: {event.pos}")
+                
+            case pg.MOUSEBUTTONDOWN:
+                print("Mouse down")
+                
+            case pg.MOUSEBUTTONUP:
+                print("Mouse up")
+                
+            case pgg.UI_BUTTON_PRESSED:
+                
+                match event.ui_element:
+                    case self._view._sidebar._test_button:
+                        print("Button pressed")
+                        
+                

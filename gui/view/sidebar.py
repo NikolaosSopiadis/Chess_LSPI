@@ -27,5 +27,14 @@ class Sidebar:
             relative_rect = pg.Rect(16, 10, width - 32, 28),
             text          = "Game Controls",
             manager       = manager,
+            container     = self._sidebar,
+            
+            
+        )
+        
+        self._test_button: pgg.elements.UIButton = pgg.elements.UIButton(
+            relative_rect = pg.Rect(16, 40, width - 32, 58),
+            text          = "test button",
+            manager       = manager,
             container     = self._sidebar
         )
