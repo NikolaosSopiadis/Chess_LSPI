@@ -133,20 +133,29 @@ class BoardWindow:
         self._draw_square(f, r, hover_color)
         
     def select_square(self) -> None:
+        # Ignore clicks outside the board
         f, r = self._hovers_over
         if f == -1 or r == -1:
             self._selected = (-1, -1)
             return
         
-        # select only if mouse_up == mouse_down
+        # If mouse_up != mouse_down, ignore
         f_clicked, r_clicked = self._mouse_clicked_pos
         if f != f_clicked or r != r_clicked:
             self._selected = (-1, -1)
             return
 
-        # if clicked on active square, remove selection
+        # If clicked on active square, remove selection
         f_s, r_s = self._selected
         if f == f_s and r == r_s:
+            self._selected = (-1, -1)
+            return
+
+        # If a square is selected, attempt to move the piece
+        if f_s != -1 and f_s != -1:
+            src = self._get_idx(f_s, r_s)
+            dst = self._get_idx(f, r)
+            self._ctrl.move_piece(src, dst)
             self._selected = (-1, -1)
             return
 
@@ -168,9 +177,6 @@ class BoardWindow:
         f, r = self._hovers_over
         self._picked_up_piece   = self._get_idx(f, r)
         self._mouse_clicked_pos = self._hovers_over
-        print(f"hovers over: {self._hovers_over}")
-        print(f"picked up piece: {self._picked_up_piece}")
-        
         
     def _draw_picked_up_piece(self) -> None:
         if self._mouse_clicked == False:

@@ -139,6 +139,17 @@ class Controller:
         if destination < 0 or destination >= self._grid_size:
             return False
         
+        src_piece = self._board[source]
+        dst_piece = self._board[destination]
+        
+        # Ignore empty squares
+        if src_piece == p.NONE:
+            return False
+        
+        # Ignore moves from and to the same square
+        if source == destination:
+            return False
+        
         # Make move
         self._board[destination] = self._board[source]
         self._board[source]      = p.NONE
