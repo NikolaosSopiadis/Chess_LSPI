@@ -39,3 +39,11 @@ class Sidebar:
             container     = self._sidebar
         )
         
+    def resize(self, x0: int, y0: int, new_width: int, new_height: int) -> None:
+        self._width  = new_width
+        self._height = new_height
+
+        self._sidebar.set_relative_position((x0, y0))
+        self._sidebar.set_dimensions((new_width, new_height))
+        # resize children that depend on width/height:
+        self._title.set_dimensions((max(1, new_width - 32), 28))

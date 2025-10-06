@@ -36,7 +36,7 @@ class MainWindow:
         self._dt:      float = self._clock.tick(self._max_fps) / 1000
         
         # Set up the game window
-        self._screen: pg.Surface = pg.display.set_mode((width, height), vsync=1)
+        self._screen: pg.Surface = pg.display.set_mode((width, height), pg.RESIZABLE, vsync=1)
         pg.display.set_caption(title)
 
         self._sidebar:   Sidebar = Sidebar(self._board_width, 0,
@@ -71,3 +71,16 @@ class MainWindow:
         
     def select_square(self):
         self._board.select_square()
+        
+    def on_resize(self, new_width: int, new_height: int) -> None:
+        self._width          = new_width
+        self._height         = new_height
+        self._board_width    = new_height
+        self._board_height   = new_height
+        self._sidebar_width  = new_width - new_height
+        self._sidebar_height = new_height
+        
+        self._manager.set_window_resolution((new_width, new_height))
+
+        self._board.resize(self._board_width, self._board_height)
+        self._sidebar.resize(self._board_width, 0, self._sidebar_width, self._sidebar_height)

@@ -23,8 +23,10 @@ class BoardWindow:
         self._max_sprite_sizes_cached:   int = 3
         self._cached_sizes_in_use: list[int] = [] # LRU of sizes
         
-        self._widht:          int = width
+        self._width:          int = width
         self._height:         int = height
+        self._x0:             int = x0
+        self._y0:             int = y0
         self._board_flipped: bool = False
         
         self.flip_board()
@@ -262,3 +264,18 @@ class BoardWindow:
         source:      int = self._get_idx(f_src, r_src)
         destination: int = self._get_idx(f_dst, r_dst)
         self._ctrl.move_piece(source, destination)
+
+    def resize(self, new_width: int, new_height: int) -> None:
+        self._width  = new_width
+        self._height = new_height
+        # new_sq: int  = new_height // max(self._files, self._ranks)
+        new_sq = max(1, self._height // max(1, max(self._files, self._ranks)))
+
+        self._square_size = new_sq
+        # mark layers dirty; sprites will be (re)cached lazily
+        self._needs_redraw = True
+    
+        self._board_rect: pg.Rect = pg.Rect(self._x0, self._y0, new_width, new_height)
+        self._board_surface:   pg.Surface = pg.Surface((new_width, new_height))
+        self._overlay_surface: pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._board.set_dimensions((new_width, new_height))

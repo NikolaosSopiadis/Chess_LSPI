@@ -119,6 +119,10 @@ class Controller:
                 match event.ui_element:
                     case self._view._sidebar._test_button:
                         self._init_board()
+                        
+            case pg.VIDEORESIZE:
+                x, y = event.size
+                self._view.on_resize(x,y)
                     
     def move_piece(self, source: int, destination: int) -> bool:
         """Attempt to move a piece from source square to destination square
