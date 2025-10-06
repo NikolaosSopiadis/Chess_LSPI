@@ -36,10 +36,12 @@ class MainWindow:
         self._dt:      float = self._clock.tick(self._max_fps) / 1000
         
         # Set up the game window
-        self._screen: pg.Surface = pg.display.set_mode((width, height))
+        self._screen: pg.Surface = pg.display.set_mode((width, height), vsync=1)
         pg.display.set_caption(title)
 
-        self._sidebar:   Sidebar = Sidebar(self._board_width, 0, self._sidebar_width, self._sidebar_height, self._manager)
+        self._sidebar:   Sidebar = Sidebar(self._board_width, 0,
+                                           self._sidebar_width, self._sidebar_height, 
+                                           self._manager, self._ctrl)
         self._board: BoardWindow = BoardWindow(self._ctrl, 0, 0, 
                                                self._board_width, self._board_height, 
                                                self._manager)
