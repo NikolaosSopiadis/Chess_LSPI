@@ -78,3 +78,5 @@ class Controller:
             case _:
                 raise FileNotFoundError(f"Could find corresponding asset for piece: {piece}")
         return folder_path + piece_type
+
+    

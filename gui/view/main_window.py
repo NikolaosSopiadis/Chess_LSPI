@@ -29,14 +29,14 @@ class MainWindow:
         self._board_width:  int = height
         self._board_height: int = height
         
-        self._clock = pg.Clock()
-        self._manager = pgg.UIManager((width, height))
+        self._clock:        pg.Clock = pg.Clock()
+        self._manager: pgg.UIManager = pgg.UIManager((width, height))
 
         self._max_fps: int = 144
         self._dt:      float = self._clock.tick(self._max_fps) / 1000
         
         # Set up the game window
-        self._screen = pg.display.set_mode((width, height))
+        self._screen: pg.Surface = pg.display.set_mode((width, height))
         pg.display.set_caption(title)
 
         self._sidebar:   Sidebar = Sidebar(self._board_width, 0, width, height, self._manager)

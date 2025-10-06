@@ -25,15 +25,15 @@ class BoardWindow:
         self._ranks: int = self._ctrl.get_ranks()
         self._files: int = self._ctrl.get_files()
         
-        self._board_panel = pgg.elements.UIPanel(
+        self._board_panel: pgg.elements.UIPanel = pgg.elements.UIPanel(
             relative_rect = pg.Rect(x0, y0, width, height),
             starting_height = 0,
             manager = manager
         )
         
-        self._board_surface = pg.Surface((width, height)).convert_alpha()
+        self._board_surface: pg.Surface = pg.Surface((width, height)).convert_alpha()
 
-        self._board = pgg.elements.UIImage(
+        self._board: pgg.elements.UIImage = pgg.elements.UIImage(
             relative_rect = pg.Rect(x0, y0, width, height),
             image_surface = self._board_surface,
             manager = manager,
@@ -50,15 +50,15 @@ class BoardWindow:
 
         for r in range(self._ranks):
             for f in range(self._files):
-                square = pg.Rect(f * square_size, r * square_size, square_size, square_size)
+                square:             pg.Rect = pg.Rect(f * square_size, r * square_size, square_size, square_size)
                 color: tuple[int, int, int] = light_color if (r + f) % 2 == 0 else dark_color
                 pg.draw.rect(self._board_surface, color, square)
                 
-                piece_idx = self._get_piece_idx(r, f)
+                piece_idx: int = self._get_piece_idx(r, f)
 
-                font = pg.font.Font(None, 40)
-                msg  = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
-                text = font.render(msg, True, (255, 255, 255))
+                font: pg.font.Font = pg.font.Font(None, 40)
+                msg:           str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
+                text:   pg.Surface = font.render(msg, True, (255, 255, 255))
                 self._board_surface.blit(text, square)
                 self._draw_piece(pieces[piece_idx], square, square_size)
                     
@@ -76,12 +76,12 @@ class BoardWindow:
         
         return piece_idx
     
-    def _draw_piece(self, piece: int, square, square_size: int) -> None:
+    def _draw_piece(self, piece: int, square: pg.Rect, square_size: int) -> None:
         sprite_path: str = self._ctrl.get_piece_sprite(piece)
         
         # No piece to draw
         if sprite_path == "":
             return
         
-        sprite = pg.image.load_sized_svg(sprite_path, (square_size, square_size)).convert_alpha()
+        sprite: pg.Surface = pg.image.load_sized_svg(sprite_path, (square_size, square_size)).convert_alpha()
         self._board_surface.blit(sprite, square)
