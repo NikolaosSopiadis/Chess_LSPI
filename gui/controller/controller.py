@@ -96,7 +96,8 @@ class Controller:
                         self._state = self.STOPPED
             
             case pg.MOUSEMOTION:
-                self._view._board.check_hover(event.pos)
+                self._view.update_mouse_pos(event.pos)
+                
             case pg.MOUSEBUTTONDOWN:
                 print("Mouse down")
                 

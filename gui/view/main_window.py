@@ -59,3 +59,6 @@ class MainWindow:
         self._board.draw()
         self._manager.draw_ui(self._screen)
         pg.display.flip()
+        
+    def update_mouse_pos(self, pos: tuple[float, float]) -> None:
+        self._board.check_hover(pos)
