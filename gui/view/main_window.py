@@ -61,7 +61,11 @@ class MainWindow:
         pg.display.flip()
         
     def update_mouse_pos(self, pos: tuple[float, float]) -> None:
-        self._board.check_hover(pos)
+        self._board.set_mouse_pos(pos)
+        self._board.check_hover()
+        
+    def mouse_clicked(self, clicked: bool, mouse_pos: tuple[float, float]) -> None:
+        self._board.set_mouse_clicked(clicked)
         
     def select_square(self):
         self._board.select_square()

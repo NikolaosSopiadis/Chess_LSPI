@@ -96,12 +96,16 @@ class Controller:
             
             case pg.MOUSEMOTION:
                 self._view.update_mouse_pos(event.pos)
+                # print(f"moved to ({event.pos})")
                 
             case pg.MOUSEBUTTONDOWN:
-                self._view.select_square()
+                self._view.mouse_clicked(True, event.pos)
+                # print("mouse down")
                 
             case pg.MOUSEBUTTONUP:
-                print("Mouse up")
+                self._view.select_square()
+                self._view.mouse_clicked(False, event.pos)
+                # print("mouse up")
                 
             case pgg.UI_BUTTON_PRESSED:
                 

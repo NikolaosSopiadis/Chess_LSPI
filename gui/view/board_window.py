@@ -27,8 +27,12 @@ class BoardWindow:
         self._square_size: int = self._height // max(self._files, self._ranks)
         
         
-        self._hovers_over: tuple[int, int] = (-1,-1) # (-1,-1) if none else (rank, file)
-        self._selected:    tuple[int, int] = (-1,-1) # (-1,-1) if none else (rank, file)
+        self._hovers_over:       tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
+        self._selected:          tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
+        self._picked_up_piece:               int = -1 # -1 if none else idx of picked up piece
+        self._mouse_clicked:                bool = False
+        self._mouse_clicked_pos: tuple[int, int] = (-1, -1) # (-1, -1) if none else (file, rank)
+        self._mouse_pos:     tuple[float, float] = (-1, -1) # (-1, -1) if none else (x, y)
         
         self._board_rect: pg.Rect = pg.Rect(x0, y0, width, height)
         
@@ -47,6 +51,7 @@ class BoardWindow:
         self._overlay_surface.fill((0, 0, 0, 0))
         
         self._draw_chess_board()
+        self._draw_picked_up_piece()
         self._draw_hover()
         self._draw_selected()
         self._board.set_image(self._board_surface)  # update the displayed image 
@@ -70,7 +75,11 @@ class BoardWindow:
                 msg:           str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
                 text:   pg.Surface = font.render(msg, True, (255, 255, 255))
                 self._board_surface.blit(text, square)
-                self._draw_piece(pieces[piece_idx], square, self._square_size)
+
+                # don't draw picked up pieces, as they are drawn as an overlay
+                if piece_idx == self._picked_up_piece:
+                    continue
+                self._draw_piece(pieces[piece_idx], square)
                     
     def flip_board(self) -> None:
         self._board_flipped = not self._board_flipped
@@ -83,26 +92,28 @@ class BoardWindow:
         
         return piece_idx
     
-    def _draw_piece(self, piece: int, square: pg.Rect, square_size: int) -> None:
+    def _draw_piece(self, piece: int, square: pg.Rect) -> None:
         sprite_path: str = self._ctrl.get_piece_sprite(piece)
         
         # No piece to draw
         if sprite_path == "":
             return
         
-        sprite: pg.Surface = pg.image.load_sized_svg(sprite_path, (square_size, square_size)).convert_alpha()
+        sprite: pg.Surface = pg.image.load_sized_svg(sprite_path, (self._square_size, self._square_size)).convert_alpha()
         self._board_surface.blit(sprite, square)
         
+    def set_mouse_pos(self, pos: tuple[float, float]) -> None:
+        self._mouse_pos = pos
         
-    def check_hover(self, mouse_pos: tuple[float, float]) -> None:
+    def check_hover(self) -> None:
 
         # if mouse is outside of board, then no piece is selected
-        if not self._board_rect.collidepoint(mouse_pos):
+        if not self._board_rect.collidepoint(self._mouse_pos):
             self._hovers_over = (-1, -1)
             return 
-        self._hovers_over = self._file_rank_from_mouse_pos(mouse_pos)
+        self._hovers_over = self._file_rank_from_mouse_pos(self._mouse_pos)
         
-    def _idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
+    def _get_idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
         f, r = self._file_rank_from_mouse_pos(mouse_pos) 
         return self._get_piece_idx(f, r)
     
@@ -126,16 +137,23 @@ class BoardWindow:
         if f == -1 or r == -1:
             self._selected = (-1, -1)
             return
-
+        
+        # select only if mouse_up == mouse_down
+        f_clicked, r_clicked = self._mouse_clicked_pos
+        if f != f_clicked or r != r_clicked:
+            self._selected = (-1, -1)
+            return
+            
+        # if clicked on active square, remove selection
         f_s, r_s = self._selected
         if f == f_s and r == r_s:
             self._selected = (-1, -1)
             return
-        
+
         self._selected = (f, r)
 
     def _draw_square(self, file: int, rank: int, color: tuple[int, int, int, int]) -> None:
-        square:             pg.Rect = pg.Rect(file * self._square_size, rank * self._square_size, self._square_size, self._square_size)
+        square: pg.Rect = pg.Rect(file * self._square_size, rank * self._square_size, self._square_size, self._square_size)
         pg.draw.rect(self._overlay_surface, color, square)
         self._board_surface.blit(self._overlay_surface)
 
@@ -145,3 +163,28 @@ class BoardWindow:
             return
         selected_color: tuple[int, int, int, int] = (200, 100, 0, 128)
         self._draw_square(f, r, selected_color)
+        
+    def _pick_piece_up(self, mouse_pos) -> None:
+        if not self._mouse_clicked or self._picked_up_piece == -1:
+            return
+        
+        
+    def _draw_picked_up_piece(self) -> None:
+        if self._mouse_clicked == False:
+            return
+        
+        x, y = self._mouse_pos
+        square: pg.Rect = pg.Rect(x - self._square_size/2, y - self._square_size/2, self._square_size, self._square_size)
+        pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
+        self._draw_piece(pieces[self._picked_up_piece], square)
+        
+    def set_mouse_clicked(self, clicked: bool) -> None:
+        self._mouse_clicked = clicked
+        if clicked:
+            f, r = self._hovers_over
+            self._picked_up_piece   = self._get_piece_idx(f, r)
+            self._mouse_clicked_pos = self._hovers_over
+            print(f"hovers over: {self._hovers_over}")
+            print(f"picked up piece: {self._picked_up_piece}")
+        else:
+            self._picked_up_piece = -1
