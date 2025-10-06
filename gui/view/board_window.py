@@ -5,6 +5,8 @@ import pygame_gui as pgg
 import numpy as np
 import numpy.typing as npt
 
+from chess_core.piece import Piece as p
+
 # type-only, no runtime imports (to avoid circular dependency)
 if TYPE_CHECKING:
     from gui.controller.controller import Controller  
@@ -13,19 +15,25 @@ class BoardWindow:
     def __init__(self, controller: Controller, x0: int, y0: int,
                  width: int, height: int, manager) -> None:
 
-        self._ctrl: Controller = controller
-        self._manager = manager
+        self._ctrl:       Controller = controller
+        self._manager: pgg.UIManager = manager
+
+        # Cache sprites to increase fps
+        self._sprite_cache: dict[tuple[int, int], pg.Surface] = {} # (square_size, piece_type) -> piece_sprite
+        self._max_sprite_sizes_cached:   int = 3
+        self._cached_sizes_in_use: list[int] = [] # LRU of sizes
         
-        self._widht:         int = width
-        self._height:        int = height
+        self._widht:          int = width
+        self._height:         int = height
         self._board_flipped: bool = False
         
         self.flip_board()
         
-        self._ranks: int = self._ctrl.get_ranks()
-        self._files: int = self._ctrl.get_files()
+        self._ranks:       int = self._ctrl.get_ranks()
+        self._files:       int = self._ctrl.get_files()
         self._square_size: int = self._height // max(self._files, self._ranks)
         
+        self._needs_redraw: bool = True # Try to decrease resource utilization by not redrawing when not necessary
         
         self._hovers_over:       tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
         self._selected:          tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
@@ -45,9 +53,57 @@ class BoardWindow:
             image_surface = self._board_surface,
             manager = manager,
         )
+        
+    def _get_sprite(self, piece: int) -> pg.Surface | None:
+
+        # Empty space has no sprite
+        if piece == p.NONE:
+            return None
+        
+        # Try cache
+        key:      tuple[int, int] = (self._square_size, piece)
+        cached_sprite: pg.Surface | None = self._sprite_cache.get(key)
+        if cached_sprite != None:
+            return cached_sprite
+        
+        # Cache miss
+        path: str | None = self._ctrl.get_piece_sprite(piece)
+
+        # None when empty, will likely never enter since we check for empty at the start
+        if path == None:
+            return None
+
+        sprite: pg.Surface = pg.image.load_sized_svg(path, (self._square_size, self._square_size)).convert_alpha() 
+
+        # Store and manage LEU of sizes
+        self._sprite_cache[key] = sprite
+        self._touch_size_lru(self._square_size)
+        self._trim_size_variants_if_needed()
+        
+        return sprite
+    
+    def _touch_size_lru(self, size: int) -> None:
+        # move 'size' to the end
+        if size in self._cached_sizes_in_use:
+            self._cached_sizes_in_use.remove(size)
+        self._cached_sizes_in_use.append(size)
+
+    def _trim_size_variants_if_needed(self) -> None:
+        # If we exceed allowed distinct sizes, drop the oldest size entries
+        while len(self._cached_sizes_in_use) > self._max_sprite_sizes_cached:
+            old_size = self._cached_sizes_in_use.pop(0)
+            # delete all entries of that size from the cache
+            to_del = [k for k in self._sprite_cache.keys() if k[0] == old_size]
+            for k in to_del:
+                del self._sprite_cache[k]
     
     def draw(self) -> None:
-        # clear previous overlay
+        # Redraw only when something changes
+        if not self._needs_redraw:
+            return
+        self._needs_redraw = False
+
+        # Clear previous overlay
         self._overlay_surface.fill((0, 0, 0, 0))
         
         self._draw_chess_board()
@@ -70,11 +126,11 @@ class BoardWindow:
                 
                 piece_idx: int = self._get_idx(f, r)
 
-                font: pg.font.Font = pg.font.Font(None, 40)
-                # x,y not drawn correctly for flipped board
-                msg:           str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
-                text:   pg.Surface = font.render(msg, True, (255, 255, 255))
-                self._board_surface.blit(text, square)
+                # font: pg.font.Font = pg.font.Font(None, 40)
+                # # x,y not drawn correctly for flipped board
+                # msg:           str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
+                # text:   pg.Surface = font.render(msg, True, (255, 255, 255))
+                # self._board_surface.blit(text, square)
 
                 # don't draw picked up pieces, as they are drawn as an overlay
                 if piece_idx == self._picked_up_piece:
@@ -93,13 +149,12 @@ class BoardWindow:
         return piece_idx
     
     def _draw_piece(self, piece: int, square: pg.Rect) -> None:
-        sprite_path: str = self._ctrl.get_piece_sprite(piece)
-        
+        sprite: pg.Surface | None = self._get_sprite(piece)
+
         # No piece to draw
-        if sprite_path == "":
+        if sprite == None:
             return
         
-        sprite: pg.Surface = pg.image.load_sized_svg(sprite_path, (self._square_size, self._square_size)).convert_alpha()
         self._board_surface.blit(sprite, square)
         
     def set_mouse_pos(self, pos: tuple[float, float]) -> None:
@@ -112,6 +167,7 @@ class BoardWindow:
             self._hovers_over = (-1, -1)
             return 
         self._hovers_over = self._file_rank_from_mouse_pos(self._mouse_pos)
+        self._needs_redraw = True
         
     def _get_idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
         f, r = self._file_rank_from_mouse_pos(mouse_pos) 
@@ -149,6 +205,7 @@ class BoardWindow:
         f_s, r_s = self._selected
         if f == f_s and r == r_s:
             self._selected = (-1, -1)
+            self._needs_redraw = True
             return
 
         # If a square is selected, attempt to move the piece
@@ -157,9 +214,11 @@ class BoardWindow:
             dst = self._get_idx(f, r)
             self._ctrl.move_piece(src, dst)
             self._selected = (-1, -1)
+            self._needs_redraw = True
             return
 
         self._selected = (f, r)
+        self._needs_redraw = True
 
     def _draw_square(self, file: int, rank: int, color: tuple[int, int, int, int]) -> None:
         square: pg.Rect = pg.Rect(file * self._square_size, rank * self._square_size, self._square_size, self._square_size)
@@ -189,6 +248,8 @@ class BoardWindow:
         
     def set_mouse_clicked(self, clicked: bool) -> None:
         self._mouse_clicked = clicked
+        self._needs_redraw = True
+        
         if clicked:
             self._pick_piece_up()
         else:

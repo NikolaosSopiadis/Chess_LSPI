@@ -64,13 +64,13 @@ class Controller:
         # board: npt.NDArray[np.uint8] = model.get_board
         return self._board
     
-    def get_piece_sprite(self, piece:int) -> str:
+    def get_piece_sprite(self, piece:int) -> str | None:
         color: str = "w" if p.is_white(piece) else "b"
         folder_path: str = "assets/pieces/"
 
         match p.piece_type(piece):
             case p.NONE:
-                return ""
+                return None
             case p.PAWN:
                 piece_type: str = "pawn-" + color + ".svg"
             case p.KNIGHT:
