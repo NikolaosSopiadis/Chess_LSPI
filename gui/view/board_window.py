@@ -35,8 +35,12 @@ class BoardWindow:
         self._files:       int = self._ctrl.get_files()
         self._square_size: int = self._height // max(self._files, self._ranks)
         
-        self._needs_redraw: bool = True # Try to decrease resource utilization by not redrawing when not necessary
-        
+        # Try to decrease resource utilization by not redrawing when not necessary
+        self._needs_redraw:  bool = True         
+        self._board_dirty:   bool = True  # squares/flip/size changed
+        self._pieces_dirty:  bool = True  # pieces changed (on move)
+        self._overlay_dirty: bool = True  # hover/selection changed
+
         self._hovers_over:       tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
         self._selected:          tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
         self._picked_up_piece:               int = -1 # -1 if none else idx of picked up piece
@@ -46,9 +50,10 @@ class BoardWindow:
         
         self._board_rect: pg.Rect = pg.Rect(x0, y0, width, height)
         
-        self._board_surface:   pg.Surface = pg.Surface((width, height))
-        
-        self._overlay_surface: pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._board_surface:    pg.Surface = pg.Surface((width, height)).convert()
+        self._pieces_surface:   pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._overlay_surface:  pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._composed_surface: pg.Surface = pg.Surface((width, height)).convert()
 
         self._board: pgg.elements.UIImage = pgg.elements.UIImage(
             relative_rect = self._board_rect,
@@ -105,42 +110,82 @@ class BoardWindow:
             return
         self._needs_redraw = False
 
-        # Clear previous overlay
-        self._overlay_surface.fill((0, 0, 0, 0))
+        if self._board_dirty:
+            self._rebuild_chess_board_surface()
         
-        self._draw_chess_board()
-        self._draw_picked_up_piece()
-        self._draw_hover()
-        self._draw_selected()
-        self._board.set_image(self._board_surface)  # update the displayed image 
+        if self._pieces_dirty:
+            self._rebuild_pieces_surface()
         
-    def _draw_chess_board(self) -> None:
+        if self._overlay_dirty:
+            self._rebuild_overlay_surface()
+        
+        self._composed_surface.blit(self._board_surface, (0, 0))
+        self._composed_surface.blit(self._pieces_surface, (0, 0))
+        self._composed_surface.blit(self._overlay_surface, (0, 0))
+        
+        self._board.set_image(self._composed_surface)  # update the displayed image 
+        
+    def _rebuild_chess_board_surface(self) -> None:
         light_color: tuple[int, int, int] = (200, 180, 160)
         dark_color:  tuple[int, int, int] = (60, 50, 40)
-        
-        pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
+        # Fill board with light squares. Now I only need to draw the dark squares (half the draw calls)
+        self._board_surface.fill(light_color)  
 
         for r in range(self._ranks):
             for f in range(self._files):
-                square:             pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
-                color: tuple[int, int, int] = light_color if (r + f) % 2 == 0 else dark_color
-                pg.draw.rect(self._board_surface, color, square)
+                # square:             pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
+                # color: tuple[int, int, int] = light_color if (r + f) % 2 == 0 else dark_color
+                # pg.draw.rect(self._board_surface, color, square)
                 
+                # Skip light squares
+                if (r + f) % 2 == 0:
+                    continue
+                
+                square: pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
+                pg.draw.rect(self._board_surface, dark_color, square)
+        self._board_dirty = False
+                    
+    def _rebuild_pieces_surface(self) -> None:
+        # Clear layer
+        self._pieces_surface.fill((0,0,0,0))
+        pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
+        debug_text: bool = False
+        if debug_text:
+            font: pg.font.Font = pg.font.Font(None, 40)
+
+        for r in range(self._ranks):
+            for f in range(self._files):
+                square: pg.Rect = pg.Rect(f * self._square_size, r * self._square_size, self._square_size, self._square_size)
                 piece_idx: int = self._get_idx(f, r)
 
-                # font: pg.font.Font = pg.font.Font(None, 40)
-                # # x,y not drawn correctly for flipped board
-                # msg:           str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
-                # text:   pg.Surface = font.render(msg, True, (255, 255, 255))
-                # self._board_surface.blit(text, square)
+                if debug_text:
+                    msg: str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
+                    text:  pg.Surface = font.render(msg, True, (255, 255, 255))
+                    self._board_surface.blit(text, square)
 
                 # don't draw picked up pieces, as they are drawn as an overlay
                 if piece_idx == self._picked_up_piece:
                     continue
+
                 self._draw_piece(pieces[piece_idx], square)
+        self._pieces_dirty = False
+    
+    def _rebuild_overlay_surface(self) -> None:
+        # Clear
+        self._overlay_surface.fill((0, 0, 0, 0))
+
+        self._draw_hover()
+        self._draw_selected()
+        self._draw_picked_up_piece()
+        
+        self._overlay_dirty = False
+        
                     
     def flip_board(self) -> None:
         self._board_flipped = not self._board_flipped
+        self._board_dirty   = True
+        self._pieces_dirty  = True
+        self._needs_redraw  = True
         
     def _get_idx(self, file: int, rank: int) -> int:
         if self._board_flipped:
@@ -157,19 +202,25 @@ class BoardWindow:
         if sprite == None:
             return
         
-        self._board_surface.blit(sprite, square)
+        self._pieces_surface.blit(sprite, square)
         
     def set_mouse_pos(self, pos: tuple[float, float]) -> None:
         self._mouse_pos = pos
         
     def check_hover(self) -> None:
-
         # if mouse is outside of board, then no piece is selected
         if not self._board_rect.collidepoint(self._mouse_pos):
-            self._hovers_over = (-1, -1)
+            if self._hovers_over != (-1, -1):
+                self._hovers_over = (-1, -1)
+                self._needs_redraw  = True
+                self._overlay_dirty = True
             return 
-        self._hovers_over = self._file_rank_from_mouse_pos(self._mouse_pos)
-        self._needs_redraw = True
+        
+        new_hover: tuple[int, int] = self._file_rank_from_mouse_pos(self._mouse_pos)
+        if new_hover != self._hovers_over:
+            self._hovers_over   = new_hover
+            self._needs_redraw  = True
+            self._overlay_dirty = True
         
     def _get_idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
         f, r = self._file_rank_from_mouse_pos(mouse_pos) 
@@ -188,7 +239,7 @@ class BoardWindow:
         if f == -1 or r == -1:
             return
         hover_color: tuple[int, int, int, int] = (200, 200, 0, 128)
-        self._draw_square(f, r, hover_color)
+        self._draw_overlay_square(f, r, hover_color)
         
     def select_square(self) -> None:
         # Ignore clicks outside the board
@@ -206,8 +257,9 @@ class BoardWindow:
         # If clicked on active square, remove selection
         f_s, r_s = self._selected
         if f == f_s and r == r_s:
-            self._selected = (-1, -1)
-            self._needs_redraw = True
+            self._selected      = (-1, -1)
+            self._needs_redraw  = True
+            self._overlay_dirty = True
             return
 
         # If a square is selected, attempt to move the piece
@@ -215,24 +267,27 @@ class BoardWindow:
             src = self._get_idx(f_s, r_s)
             dst = self._get_idx(f, r)
             self._ctrl.move_piece(src, dst)
-            self._selected = (-1, -1)
-            self._needs_redraw = True
+            self._selected      = (-1, -1)
+            self._needs_redraw  = True
+            self._overlay_dirty = True
+            self._pieces_dirty  = True
             return
 
-        self._selected = (f, r)
-        self._needs_redraw = True
+        self._selected      = (f, r)
+        self._needs_redraw  = True
+        self._overlay_dirty = True
 
-    def _draw_square(self, file: int, rank: int, color: tuple[int, int, int, int]) -> None:
+    def _draw_overlay_square(self, file: int, rank: int, color: tuple[int, int, int, int]) -> None:
         square: pg.Rect = pg.Rect(file * self._square_size, rank * self._square_size, self._square_size, self._square_size)
         pg.draw.rect(self._overlay_surface, color, square)
-        self._board_surface.blit(self._overlay_surface)
 
     def _draw_selected(self) -> None:
         f, r = self._selected
         if f == -1 or r == -1:
             return
+
         selected_color: tuple[int, int, int, int] = (200, 100, 0, 128)
-        self._draw_square(f, r, selected_color)
+        self._draw_overlay_square(f, r, selected_color)
         
     def _pick_piece_up(self) -> None:
         f, r = self._hovers_over
@@ -245,17 +300,26 @@ class BoardWindow:
         
         x, y = self._mouse_pos
         square: pg.Rect = pg.Rect(x - self._square_size/2, y - self._square_size/2, self._square_size, self._square_size)
-        pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
-        self._draw_piece(pieces[self._picked_up_piece], square)
+        piece:      int = self._ctrl.get_pieces_on_board()[self._picked_up_piece]
+
+        sprite: pg.Surface | None = self._get_sprite(piece)
+        # No piece to draw
+        if sprite == None:
+            return
+        self._overlay_surface.blit(sprite, square)
+        
         
     def set_mouse_clicked(self, clicked: bool) -> None:
         self._mouse_clicked = clicked
-        self._needs_redraw = True
         
         if clicked:
             self._pick_piece_up()
         else:
             self._place_piece_down()
+
+        self._needs_redraw  = True
+        self._pieces_dirty  = True
+        self._overlay_dirty = True
             
     def _place_piece_down(self) -> None:
         self._picked_up_piece = -1
@@ -273,9 +337,14 @@ class BoardWindow:
 
         self._square_size = new_sq
         # mark layers dirty; sprites will be (re)cached lazily
-        self._needs_redraw = True
+        self._board_dirty   = True
+        self._pieces_dirty  = True
+        self._overlay_dirty = True
+        self._needs_redraw  = True
     
-        self._board_rect: pg.Rect = pg.Rect(self._x0, self._y0, new_width, new_height)
-        self._board_surface:   pg.Surface = pg.Surface((new_width, new_height))
-        self._overlay_surface: pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._board_rect:          pg.Rect = pg.Rect(self._x0, self._y0, new_width, new_height)
+        self._board_surface:    pg.Surface = pg.Surface((new_width, new_height)).convert()
+        self._pieces_surface:   pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._overlay_surface:  pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._composed_surface: pg.Surface = pg.Surface((new_width, new_height)).convert()
         self._board.set_dimensions((new_width, new_height))
