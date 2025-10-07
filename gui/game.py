@@ -25,7 +25,7 @@ class Game:
                 self._ctrl.handle_event(event)
                     
             self._view.draw()
-            print(f"fps = {self._view._clock.get_fps()}")
+            # print(f"fps = {self._view._clock.get_fps()}")
                     
         print("Exiting")
         pg.quit()

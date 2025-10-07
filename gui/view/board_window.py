@@ -29,7 +29,7 @@ class BoardWindow:
         self._y0:             int = y0
         self._board_flipped: bool = False
         
-        self.flip_board()
+        # self.flip_board()
         
         self._ranks:       int = self._ctrl.get_ranks()
         self._files:       int = self._ctrl.get_files()
@@ -150,6 +150,7 @@ class BoardWindow:
         self._pieces_surface.fill((0,0,0,0))
         pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
         debug_text: bool = False
+        debug_text: bool = True
         if debug_text:
             font: pg.font.Font = pg.font.Font(None, 40)
 
@@ -288,6 +289,19 @@ class BoardWindow:
 
         selected_color: tuple[int, int, int, int] = (200, 100, 0, 128)
         self._draw_overlay_square(f, r, selected_color)
+        
+        # Draw legal moves
+        legal_move_color: tuple[int, int, int, int] = (50, 255, 50, 128)
+        legal_moves = self._ctrl.get_legal_moves(f, r)
+        for lm in legal_moves:
+            lm_f, lm_r = self._idx_to_f_r(lm)
+            self._draw_overlay_square(lm_f, lm_r, legal_move_color)
+
+        
+    def _idx_to_f_r(self, idx: int) -> tuple[int, int]:
+        r: int = idx // self._files
+        f: int = idx % self._files
+        return r, f
         
     def _pick_piece_up(self) -> None:
         f, r = self._hovers_over

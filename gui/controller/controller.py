@@ -5,44 +5,26 @@ import pygame_gui as pgg
 
 from gui.view.main_window import MainWindow
 from chess_core.piece import Piece as p     
+from chess_core.board import Board
+from chess_core.move import Move
 class Controller:
     
     STOPPED: int = 0
     RUNNING: int = 1
     
-    def __init__(self) -> None:
+    def __init__(self, ranks: int = 8, files: int = 8) -> None:
         self._state: int = self.RUNNING
-        self._ranks: int = 8
-        self._files: int = 8
+        self._ranks: int = ranks
+        self._files: int = files
         
         self._view: MainWindow = MainWindow(self, 800*2, 600*2, "Chess")
+        self._model: Board     = Board(ranks, files)
         
         self._grid_size = self._ranks * self._files
         self._init_board()
 
     def _init_board(self) -> None:
-        self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
-        self._board[0] = p.WHITE_ROOK
-        self._board[1] = p.WHITE_KNIGHT
-        self._board[2] = p.WHITE_BISHOP
-        self._board[3] = p.WHITE_QUEEN
-        self._board[4] = p.WHITE_KING
-        self._board[5] = p.WHITE_BISHOP 
-        self._board[6] = p.WHITE_KNIGHT
-        self._board[7] = p.WHITE_ROOK
-        for i in range(8, 16):
-            self._board[i] = p.WHITE_PAWN
-
-        for i in range(48, 56):
-            self._board[i] = p.BLACK_PAWN
-        self._board[56] = p.BLACK_ROOK
-        self._board[57] = p.BLACK_KNIGHT
-        self._board[58] = p.BLACK_BISHOP
-        self._board[59] = p.BLACK_QUEEN
-        self._board[60] = p.BLACK_KING
-        self._board[61] = p.BLACK_BISHOP 
-        self._board[62] = p.BLACK_KNIGHT
-        self._board[63] = p.BLACK_ROOK
+        self._model._init_board()
         
     def get_state(self) -> int:
         return self._state
@@ -61,8 +43,7 @@ class Controller:
         return self._view
     
     def get_pieces_on_board(self) -> npt.NDArray[np.uint8]:
-        # board: npt.NDArray[np.uint8] = model.get_board
-        return self._board
+        return self._model.get_board()
     
     def get_piece_sprite(self, piece:int) -> str | None:
         color: str = "w" if p.is_white(piece) else "b"
@@ -134,28 +115,33 @@ class Controller:
         Returns:
             bool: True if success, False if illegal move
         """
-        # Check if move is legal
+        move = Move(source, destination)
+        return self._model.make_move(move)
+        # # Check if move is legal
 
-        # Out of bounds
-        if source < 0 or source >= self._grid_size:
-            return False
+        # # Out of bounds
+        # if source < 0 or source >= self._grid_size:
+        #     return False
         
-        if destination < 0 or destination >= self._grid_size:
-            return False
+        # if destination < 0 or destination >= self._grid_size:
+        #     return False
         
-        src_piece = self._board[source]
-        dst_piece = self._board[destination]
+        # src_piece = self._board[source]
+        # dst_piece = self._board[destination]
         
-        # Ignore empty squares
-        if src_piece == p.NONE:
-            return False
+        # # Ignore empty squares
+        # if src_piece == p.NONE:
+        #     return False
         
-        # Ignore moves from and to the same square
-        if source == destination:
-            return False
+        # # Ignore moves from and to the same square
+        # if source == destination:
+        #     return False
         
-        # Make move
-        self._board[destination] = self._board[source]
-        self._board[source]      = p.NONE
+        # # Make move
+        # self._board[destination] = self._board[source]
+        # self._board[source]      = p.NONE
         
         return True
+    
+    def get_legal_moves(self, file: int, rank: int) -> list[int]:
+        return self._model.get_legal_moves(file, rank)

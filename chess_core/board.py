@@ -32,11 +32,93 @@ class Board:
         # self._can_pawn_move_two_up[color][file]
         self._can_pawn_move_two_up: npt.NDArray[np.bool] = np.full((2,self._grid_size), True)
         
+    def _init_board(self) -> None:
+        self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
+        self._board[0] = p.WHITE_ROOK
+        self._board[1] = p.WHITE_KNIGHT
+        self._board[2] = p.WHITE_BISHOP
+        self._board[3] = p.WHITE_QUEEN
+        self._board[4] = p.WHITE_KING
+        self._board[5] = p.WHITE_BISHOP 
+        self._board[6] = p.WHITE_KNIGHT
+        self._board[7] = p.WHITE_ROOK
+        for i in range(8, 16):
+            self._board[i] = p.WHITE_PAWN
+
+        for i in range(48, 56):
+            self._board[i] = p.BLACK_PAWN
+        self._board[56] = p.BLACK_ROOK
+        self._board[57] = p.BLACK_KNIGHT
+        self._board[58] = p.BLACK_BISHOP
+        self._board[59] = p.BLACK_QUEEN
+        self._board[60] = p.BLACK_KING
+        self._board[61] = p.BLACK_BISHOP 
+        self._board[62] = p.BLACK_KNIGHT
+        self._board[63] = p.BLACK_ROOK
+        
     def make_move(self, move: Move) -> bool:
-        src: int = Move.src_square
-        dst: int = Move.dst_square
+        src: int = move.src_square
+        dst: int = move.dst_square
+
+        # Out of bounds
+        if src < 0 or src >= self._grid_size:
+            return False
+        
+        if dst < 0 or dst >= self._grid_size:
+            return False
+        
+        src_piece = self._board[src]
+        dst_piece = self._board[dst]
+        
+        # Ignore empty squares
+        if src_piece == p.NONE:
+            return False
+        
+        # Ignore moves from and to the same square
+        if src == dst:
+            return False
+
+        
         
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 
         
         return True
+    
+    def idx_to_f_r(self, idx: int) -> tuple[int, int]:
+        r: int = idx // self._files
+        f: int = idx % self._files
+        return r, f
+
+    def get_idx(self, f: int, r: int) -> int:
+        return f + (r * self._files)
+
+    def _get_orhogonal_legal_moves(self, file: int, rank: int) -> list[int]:
+        legal_moves: list[int] = list()
+        move_idx: int = -1
+        for f in range(0, self._files):
+            move_idx = self.get_idx(f, rank)
+            legal_moves.append(move_idx)
+            
+        for r in range(0, self._ranks):
+            move_idx = self.get_idx(file, r)
+            legal_moves.append(move_idx)
+
+        return legal_moves
+
+    def get_legal_moves(self, file: int, rank: int) -> list[int]:
+        idx: int = self.get_idx(file, rank)
+        piece = self._board[idx]
+        
+        match p.piece_type(piece):
+            case p.ROOK:
+                return self._get_orhogonal_legal_moves(file, rank)
+        
+        return list()
+
+    def get_board(self) -> npt.NDArray[np.uint8]:
+        return self._board
+    
+b = Board()
+test_moves = b._get_orhogonal_legal_moves(4,2)
+print(test_moves)
