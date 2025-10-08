@@ -327,11 +327,15 @@ class BoardWindow:
         
     def _pick_piece_up(self) -> None:
         f, r = self._hovers_over
+        if f == -1 or r == -1:
+            self._picked_up_piece = -1
+            return
+            
         self._picked_up_piece   = self._get_idx(f, r)
         self._mouse_clicked_pos = self._hovers_over
         
     def _draw_picked_up_piece(self) -> None:
-        if self._mouse_clicked == False:
+        if self._mouse_clicked == False or self._picked_up_piece == -1:
             return
         
         x, y = self._mouse_pos
