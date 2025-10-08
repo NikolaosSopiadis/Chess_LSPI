@@ -5,6 +5,10 @@ from chess_core.piece import Piece as p
 from chess_core.move import Move
 
 class Board:
+
+    NO_PIECE: int    = 0
+    ENEMY_PIECE: int = -1
+    OWN_PIECE: int   = 1
     
     CASTLE_LEFT: int  = 0
     CASTLE_RIGHT: int = 1
@@ -83,15 +87,17 @@ class Board:
         if src == dst:
             return False
 
-        f_src, r_src = self.idx_to_f_r(src)
-        legal_moves: list[int] = self.get_legal_moves(f_src, r_src)       
+        # # Only make legal moves
+        # f_src, r_src = self.idx_to_f_r(src)
+        # legal_moves: list[int] = self.get_legal_moves(f_src, r_src)       
+        # if dst not in legal_moves:
+        #     return False
 
-        if dst not in legal_moves:
-            return False
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 
         
-        self._is_white_to_move = not self._is_white_to_move
+        # Change turn
+        # self._is_white_to_move = not self._is_white_to_move
         
         return True
     
@@ -105,6 +111,23 @@ class Board:
 
     def _get_pawn_legal_moves(self, file: int, rank: int) -> list[int]:
         return list()
+
+    # Returns 0 on empty, -1 on enemy piece and 1 on own piece
+    def _check_enemy_piece(self, dst: int) -> int:
+        piece_at_dst: int = self._board[dst]
+        if piece_at_dst == p.NONE:
+            return self.NO_PIECE
+
+        # White to move
+        if self._is_white_to_move: 
+            if p.is_white(piece_at_dst):
+                return self.OWN_PIECE
+            return self.ENEMY_PIECE
+        
+        # Black to move
+        if p.is_white(piece_at_dst):
+            return self.ENEMY_PIECE
+        return self.OWN_PIECE
 
     def _get_knight_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
@@ -120,46 +143,37 @@ class Board:
         move_idx: int
         f_src, r_src = self.idx_to_f_r(src_square)
         
-        print(f"Start idx = {src_square}, (f,r) = ({f_src},{r_src})")
-        
         if  r_src < self._ranks - 2 and f_src > 0:
             move_idx = self.get_idx(f_src - 1, r_src + 2)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            
             legal_moves.append(move_idx)
 
         if  r_src < self._ranks - 2 and f_src < self._files - 1:
             move_idx = self.get_idx(f_src + 1, r_src + 2)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
             legal_moves.append(move_idx)
 
         if  r_src < self._ranks - 1 and f_src > 1:
             move_idx = self.get_idx(f_src - 2, r_src + 1)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
             legal_moves.append(move_idx)
 
         if  r_src < self._ranks - 1 and f_src < self._files - 2:
             move_idx = self.get_idx(f_src + 2, r_src + 1)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
             legal_moves.append(move_idx)
 
         if  r_src > 0 and f_src > 0:
             move_idx = self.get_idx(f_src - 1, r_src - 2)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
             legal_moves.append(move_idx)
 
         if  r_src > 0 and f_src < self._files - 1:
             move_idx = self.get_idx(f_src + 1, r_src - 2)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
             legal_moves.append(move_idx)
 
         if  r_src > 1 and f_src > 1:
             move_idx = self.get_idx(f_src - 2, r_src - 1)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
             legal_moves.append(move_idx)
 
         if  r_src > 1 and f_src < self._files - 2:
             move_idx = self.get_idx(f_src + 2, r_src - 1)
-            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
             legal_moves.append(move_idx)
             
         print(f"tota moves = {len(legal_moves)}")
@@ -209,22 +223,49 @@ class Board:
             
         move_idx: int
         f_src, r_src = self.idx_to_f_r(src_square)
-        
         for f in range(1, r_src + 1):
             move_idx = src_square - f * self._files
-            legal_moves.append(move_idx)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
             
         for f in range(1, self._ranks - r_src):
             move_idx = src_square + f * self._files
-            legal_moves.append(move_idx)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
 
         for r in range(1, f_src + 1):
             move_idx = src_square - r
-            legal_moves.append(move_idx)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
             
         for r in range(1, self._files - f_src):
             move_idx = src_square + r
-            legal_moves.append(move_idx)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
 
         return legal_moves
 
