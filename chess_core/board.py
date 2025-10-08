@@ -83,12 +83,15 @@ class Board:
         if src == dst:
             return False
 
-        
-        
+        f_src, r_src = self.idx_to_f_r(src)
+        legal_moves: list[int] = self.get_legal_moves(f_src, r_src)       
+
+        if dst not in legal_moves:
+            return False
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 
         
-        # self._is_white_to_move = not self._is_white_to_move
+        self._is_white_to_move = not self._is_white_to_move
         
         return True
     
