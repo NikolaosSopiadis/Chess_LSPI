@@ -31,6 +31,8 @@ class Board:
         self._can__castle: list[bool] = [True, True, True, True] 
         # self._can_pawn_move_two_up[color][file]
         self._can_pawn_move_two_up: npt.NDArray[np.bool] = np.full((2,self._grid_size), True)
+        
+        self._is_white_to_move: bool = True
 
         self._init_board()
         # self._board[0] = p.WHITE_ROOK
@@ -86,6 +88,8 @@ class Board:
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 
         
+        self._is_white_to_move = not self._is_white_to_move
+        
         return True
     
     def idx_to_f_r(self, idx: int) -> tuple[int, int]:
@@ -108,16 +112,58 @@ class Board:
     def _get_diagonal_legal_moves(self, file: int, rank: int) -> list[int]:
         return list()
 
-    def _get_orthogonal_legal_moves(self, file: int, rank: int) -> list[int]:
-        legal_moves: list[int] = list()
-        move_idx: int = -1
+    # def _get_orthogonal_legal_moves(self, file: int, rank: int) -> list[int]:
+    #     legal_moves: list[int] = list()
+    #     move_idx: int
+    #     src_idx: int = self.get_idx(file, rank)
+    #     src_piece: int = self._board[src_idx]
+     
+    #     # Check if this is current players piece   
+    #     if p.is_white(src_piece) and not self._is_white_to_move:
+    #         return legal_moves
         
-        for f in range(0, self._files):
-            move_idx = self.get_idx(f, rank)
+    #     if not p.is_white(src_piece) and self._is_white_to_move:
+    #         return legal_moves
+            
+        
+    #     for f in range(0, self._files):
+    #         move_idx = self.get_idx(f, rank)
+    #         legal_moves.append(move_idx)
+            
+    #     for r in range(0, self._ranks):
+    #         move_idx = self.get_idx(file, r)
+    #         legal_moves.append(move_idx)
+
+    #     return legal_moves
+
+    def _get_orthogonal_legal_moves(self, src_square: int) -> list[int]:
+        legal_moves: list[int] = list()
+        src_piece: int = self._board[src_square]
+     
+        # Check if this is current players piece   
+        if p.is_white(src_piece) and not self._is_white_to_move:
+            return legal_moves
+        
+        if not p.is_white(src_piece) and self._is_white_to_move:
+            return legal_moves
+            
+        move_idx: int
+        f_src, r_src = self.idx_to_f_r(src_square)
+        
+        for f in range(1, r_src + 1):
+            move_idx = src_square - f * self._files
             legal_moves.append(move_idx)
             
-        for r in range(0, self._ranks):
-            move_idx = self.get_idx(file, r)
+        for f in range(1, self._ranks - r_src):
+            move_idx = src_square + f * self._files
+            legal_moves.append(move_idx)
+
+        for r in range(1, f_src + 1):
+            move_idx = src_square - r
+            legal_moves.append(move_idx)
+            
+        for r in range(1, self._files - f_src):
+            move_idx = src_square + r
             legal_moves.append(move_idx)
 
         return legal_moves
@@ -138,10 +184,11 @@ class Board:
                 legal_moves = self._get_diagonal_legal_moves(file, rank)
             
             case p.ROOK:
-                legal_moves = self._get_orthogonal_legal_moves(file, rank)
+                # legal_moves = self._get_orthogonal_legal_moves(file, rank)
+                legal_moves = self._get_orthogonal_legal_moves(idx)
 
             case p.QUEEN:
-                legal_moves = self._get_diagonal_legal_moves(file, rank) + self._get_orthogonal_legal_moves(file, rank)
+                legal_moves = self._get_diagonal_legal_moves(file, rank) + self._get_orthogonal_legal_moves(idx)
 
             case p.KING:
                 legal_moves = self._get_king_legal_moves(file, rank)
