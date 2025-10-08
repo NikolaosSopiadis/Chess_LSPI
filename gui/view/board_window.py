@@ -162,7 +162,7 @@ class BoardWindow:
                 if debug_text:
                     msg: str = f"idx = {piece_idx}\nx,y = ({f},{r})\n\npiece = {pieces[piece_idx]}"
                     text:  pg.Surface = font.render(msg, True, (255, 255, 255))
-                    self._board_surface.blit(text, square)
+                    self._pieces_surface.blit(text, square)
 
                 # don't draw picked up pieces, as they are drawn as an overlay
                 if piece_idx == self._picked_up_piece:
