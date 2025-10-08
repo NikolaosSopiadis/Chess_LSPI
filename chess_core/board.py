@@ -266,47 +266,7 @@ class Board:
                     legal_moves.append(move_idx)
                     break
 
-        # for f in range(1, r_src):
-        #     move_idx = src_square - f * (self._files - 1)
-        #     legal_moves.append(move_idx)
-        #     print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
-            # move_idx = src_square - f * (self._files + 1)
-            # legal_moves.append(move_idx)
-            # print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
-            
-        # for f in range(1, self._ranks - r_src):
-        #     move_idx = src_square + f * (self._files - 1)
-        #     legal_moves.append(move_idx)
-        #     print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
-        #     move_idx = src_square + f * (self._files + 1)
-        #     legal_moves.append(move_idx)
-        #     print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
-            
         return legal_moves
-
-    # def _get_orthogonal_legal_moves(self, file: int, rank: int) -> list[int]:
-    #     legal_moves: list[int] = list()
-    #     move_idx: int
-    #     src_idx: int = self.get_idx(file, rank)
-    #     src_piece: int = self._board[src_idx]
-     
-    #     # Check if this is current players piece   
-    #     if p.is_white(src_piece) and not self._is_white_to_move:
-    #         return legal_moves
-        
-    #     if not p.is_white(src_piece) and self._is_white_to_move:
-    #         return legal_moves
-            
-        
-    #     for f in range(0, self._files):
-    #         move_idx = self.get_idx(f, rank)
-    #         legal_moves.append(move_idx)
-            
-    #     for r in range(0, self._ranks):
-    #         move_idx = self.get_idx(file, r)
-    #         legal_moves.append(move_idx)
-
-    #     return legal_moves
 
     def _get_orthogonal_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
