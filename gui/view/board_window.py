@@ -29,7 +29,7 @@ class BoardWindow:
         self._y0:             int = y0
         self._board_flipped: bool = False
         
-        # self.flip_board()
+        self.flip_board()
         
         self._ranks:       int = self._ctrl.get_ranks()
         self._files:       int = self._ctrl.get_files()
@@ -292,16 +292,30 @@ class BoardWindow:
         
         # Draw legal moves
         legal_move_color: tuple[int, int, int, int] = (50, 255, 50, 128)
-        legal_moves = self._ctrl.get_legal_moves(f, r)
+        square_idx: int = self._get_idx(f, r)
+        legal_moves = self._ctrl.get_legal_moves(square_idx)
         for lm in legal_moves:
             lm_f, lm_r = self._idx_to_f_r(lm)
             self._draw_overlay_square(lm_f, lm_r, legal_move_color)
+            
+        self._board_dirty   = True
+        self._pieces_dirty  = True
+        self._overlay_dirty = True
+        self._needs_redraw  = True
 
-        
+    # TODO: Super important! f, r in board_window refer to the x,y relataive cordinates and not the file, rank in board
+    # I need to fix it so view uses the absolute f,r from board       
+    # Or at leaste re-write them in x,y to avoid confusion
     def _idx_to_f_r(self, idx: int) -> tuple[int, int]:
         r: int = idx // self._files
         f: int = idx % self._files
-        return r, f
+        
+        if self._board_flipped:
+            f = self._files - f -1
+        else:
+            r = self._ranks - r - 1
+            
+        return f, r
         
     def _pick_piece_up(self) -> None:
         f, r = self._hovers_over

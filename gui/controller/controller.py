@@ -21,11 +21,7 @@ class Controller:
         self._model: Board     = Board(ranks, files)
         
         self._grid_size = self._ranks * self._files
-        self._init_board()
 
-    def _init_board(self) -> None:
-        self._model._init_board()
-        
     def get_state(self) -> int:
         return self._state
     
@@ -99,8 +95,8 @@ class Controller:
                 
                 match event.ui_element:
                     case self._view._sidebar._test_button:
-                        self._init_board()
-                        
+                        pass
+                    
             case pg.VIDEORESIZE:
                 x, y = event.size
                 self._view.on_resize(x,y)
@@ -143,5 +139,6 @@ class Controller:
         
         return True
     
-    def get_legal_moves(self, file: int, rank: int) -> list[int]:
+    def get_legal_moves(self, square: int) -> list[int]:
+        file, rank = self._model.idx_to_f_r(square)
         return self._model.get_legal_moves(file, rank)

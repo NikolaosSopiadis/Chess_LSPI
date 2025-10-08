@@ -31,6 +31,9 @@ class Board:
         self._can__castle: list[bool] = [True, True, True, True] 
         # self._can_pawn_move_two_up[color][file]
         self._can_pawn_move_two_up: npt.NDArray[np.bool] = np.full((2,self._grid_size), True)
+
+        self._init_board()
+        # self._board[0] = p.WHITE_ROOK
         
     def _init_board(self) -> None:
         self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
@@ -88,14 +91,27 @@ class Board:
     def idx_to_f_r(self, idx: int) -> tuple[int, int]:
         r: int = idx // self._files
         f: int = idx % self._files
-        return r, f
+        return f, r
 
     def get_idx(self, f: int, r: int) -> int:
         return f + (r * self._files)
 
-    def _get_orhogonal_legal_moves(self, file: int, rank: int) -> list[int]:
+    def _get_pawn_legal_moves(self, file: int, rank: int) -> list[int]:
+        return list()
+
+    def _get_knight_legal_moves(self, file: int, rank: int) -> list[int]:
+        return list()
+
+    def _get_king_legal_moves(self, file: int, rank: int) -> list[int]:
+        return list()
+
+    def _get_diagonal_legal_moves(self, file: int, rank: int) -> list[int]:
+        return list()
+
+    def _get_orthogonal_legal_moves(self, file: int, rank: int) -> list[int]:
         legal_moves: list[int] = list()
         move_idx: int = -1
+        
         for f in range(0, self._files):
             move_idx = self.get_idx(f, rank)
             legal_moves.append(move_idx)
@@ -109,16 +125,32 @@ class Board:
     def get_legal_moves(self, file: int, rank: int) -> list[int]:
         idx: int = self.get_idx(file, rank)
         piece = self._board[idx]
+        legal_moves: list[int]
         
         match p.piece_type(piece):
+            case p.PAWN:
+                legal_moves = self._get_pawn_legal_moves(file, rank)
+
+            case p.KNIGHT:
+                legal_moves = self._get_knight_legal_moves(file, rank)
+
+            case p.BISHOP:
+                legal_moves = self._get_diagonal_legal_moves(file, rank)
+            
             case p.ROOK:
-                return self._get_orhogonal_legal_moves(file, rank)
-        
-        return list()
+                legal_moves = self._get_orthogonal_legal_moves(file, rank)
+
+            case p.QUEEN:
+                legal_moves = self._get_diagonal_legal_moves(file, rank) + self._get_orthogonal_legal_moves(file, rank)
+
+            case p.KING:
+                legal_moves = self._get_king_legal_moves(file, rank)
+
+            case _:
+                legal_moves = list()
+                
+
+        return legal_moves
 
     def get_board(self) -> npt.NDArray[np.uint8]:
         return self._board
-    
-b = Board()
-test_moves = b._get_orhogonal_legal_moves(4,2)
-print(test_moves)
