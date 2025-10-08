@@ -183,8 +183,106 @@ class Board:
     def _get_king_legal_moves(self, file: int, rank: int) -> list[int]:
         return list()
 
-    def _get_diagonal_legal_moves(self, file: int, rank: int) -> list[int]:
-        return list()
+    def _get_diagonal_legal_moves(self, src_square: int) -> list[int]:
+        legal_moves: list[int] = list()
+        src_piece: int = self._board[src_square]
+     
+        # Check if this is current players piece   
+        if p.is_white(src_piece) and not self._is_white_to_move:
+            return legal_moves
+        
+        if not p.is_white(src_piece) and self._is_white_to_move:
+            return legal_moves
+            
+        move_idx: int
+        f_src, r_src = self.idx_to_f_r(src_square)
+
+
+        print(f"Legal moves for idx = {src_square}, (f,r) = ({f_src},{r_src})")
+
+        m: int = max(self._files, self._ranks)
+
+        for i in range(1, m):
+            f: int = f_src - i
+            r: int = r_src - i
+            if f < 0 or r < 0:
+                break
+            
+            move_idx = self.get_idx(f, r)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
+
+        for i in range(1, m):
+            f: int = f_src + i
+            r: int = r_src + i
+            if f >= self._files or r >= self._ranks:
+                break
+            
+            move_idx = self.get_idx(f, r)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
+        
+        for i in range(1, m):
+            f: int = f_src + i
+            r: int = r_src - i
+            if f >= self._files or r < 0:
+                break
+            
+            move_idx = self.get_idx(f, r)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
+
+        for i in range(1, m):
+            f: int = f_src - i
+            r: int = r_src + i
+            if f < 0 or r >= self._ranks:
+                break
+            
+            move_idx = self.get_idx(f, r)
+            match self._check_enemy_piece(move_idx):
+                case self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                case self.OWN_PIECE:
+                    break
+                case self.ENEMY_PIECE:
+                    legal_moves.append(move_idx)
+                    break
+
+        # for f in range(1, r_src):
+        #     move_idx = src_square - f * (self._files - 1)
+        #     legal_moves.append(move_idx)
+        #     print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
+            # move_idx = src_square - f * (self._files + 1)
+            # legal_moves.append(move_idx)
+            # print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
+            
+        # for f in range(1, self._ranks - r_src):
+        #     move_idx = src_square + f * (self._files - 1)
+        #     legal_moves.append(move_idx)
+        #     print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
+        #     move_idx = src_square + f * (self._files + 1)
+        #     legal_moves.append(move_idx)
+        #     print(f"idx = {move_idx} -> (f,r) = ({self.idx_to_f_r(move_idx)})")
+            
+        return legal_moves
 
     # def _get_orthogonal_legal_moves(self, file: int, rank: int) -> list[int]:
     #     legal_moves: list[int] = list()
@@ -282,14 +380,14 @@ class Board:
                 legal_moves = self._get_knight_legal_moves(idx)
 
             case p.BISHOP:
-                legal_moves = self._get_diagonal_legal_moves(file, rank)
+                legal_moves = self._get_diagonal_legal_moves(idx)
             
             case p.ROOK:
                 # legal_moves = self._get_orthogonal_legal_moves(file, rank)
                 legal_moves = self._get_orthogonal_legal_moves(idx)
 
             case p.QUEEN:
-                legal_moves = self._get_diagonal_legal_moves(file, rank) + self._get_orthogonal_legal_moves(idx)
+                legal_moves = self._get_diagonal_legal_moves(idx) + self._get_orthogonal_legal_moves(idx)
 
             case p.KING:
                 legal_moves = self._get_king_legal_moves(file, rank)
