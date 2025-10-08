@@ -29,7 +29,7 @@ class BoardWindow:
         self._y0:             int = y0
         self._board_flipped: bool = False
         
-        self.flip_board()
+        # self.flip_board()
         
         self._ranks:       int = self._ctrl.get_ranks()
         self._files:       int = self._ctrl.get_files()

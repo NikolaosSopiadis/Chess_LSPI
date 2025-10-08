@@ -88,7 +88,7 @@ class Board:
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 
         
-        self._is_white_to_move = not self._is_white_to_move
+        # self._is_white_to_move = not self._is_white_to_move
         
         return True
     
@@ -103,8 +103,65 @@ class Board:
     def _get_pawn_legal_moves(self, file: int, rank: int) -> list[int]:
         return list()
 
-    def _get_knight_legal_moves(self, file: int, rank: int) -> list[int]:
-        return list()
+    def _get_knight_legal_moves(self, src_square: int) -> list[int]:
+        legal_moves: list[int] = list()
+        src_piece: int = self._board[src_square]
+     
+        # Check if this is current players piece   
+        if p.is_white(src_piece) and not self._is_white_to_move:
+            return legal_moves
+        
+        if not p.is_white(src_piece) and self._is_white_to_move:
+            return legal_moves
+            
+        move_idx: int
+        f_src, r_src = self.idx_to_f_r(src_square)
+        
+        print(f"Start idx = {src_square}, (f,r) = ({f_src},{r_src})")
+        
+        if  r_src < self._ranks - 2 and f_src > 0:
+            move_idx = self.get_idx(f_src - 1, r_src + 2)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+
+        if  r_src < self._ranks - 2 and f_src < self._files - 1:
+            move_idx = self.get_idx(f_src + 1, r_src + 2)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+
+        if  r_src < self._ranks - 1 and f_src > 1:
+            move_idx = self.get_idx(f_src - 2, r_src + 1)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+
+        if  r_src < self._ranks - 1 and f_src < self._files - 2:
+            move_idx = self.get_idx(f_src + 2, r_src + 1)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+
+        if  r_src > 0 and f_src > 0:
+            move_idx = self.get_idx(f_src - 1, r_src - 2)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+
+        if  r_src > 0 and f_src < self._files - 1:
+            move_idx = self.get_idx(f_src + 1, r_src - 2)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+
+        if  r_src > 1 and f_src > 1:
+            move_idx = self.get_idx(f_src - 2, r_src - 1)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+
+        if  r_src > 1 and f_src < self._files - 2:
+            move_idx = self.get_idx(f_src + 2, r_src - 1)
+            print(f"Target idx = {move_idx}, (f,r) = ({self.idx_to_f_r(move_idx)})")
+            legal_moves.append(move_idx)
+            
+        print(f"tota moves = {len(legal_moves)}")
+
+        return legal_moves
 
     def _get_king_legal_moves(self, file: int, rank: int) -> list[int]:
         return list()
@@ -178,7 +235,7 @@ class Board:
                 legal_moves = self._get_pawn_legal_moves(file, rank)
 
             case p.KNIGHT:
-                legal_moves = self._get_knight_legal_moves(file, rank)
+                legal_moves = self._get_knight_legal_moves(idx)
 
             case p.BISHOP:
                 legal_moves = self._get_diagonal_legal_moves(file, rank)

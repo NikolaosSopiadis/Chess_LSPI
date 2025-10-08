@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 class Game:
     def __init__(self) -> None:
-        self._ctrl: Controller = Controller()
+        self._ctrl: Controller = Controller(8,8)
         self._view: MainWindow = self._ctrl.get_view() # TODO: Uncouple view from game
     
     def run(self) -> None:
