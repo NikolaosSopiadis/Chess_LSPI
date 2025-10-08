@@ -207,7 +207,7 @@ class BoardWindow:
         
     def set_mouse_pos(self, pos: tuple[float, float]) -> None:
         self._mouse_pos = pos
-        
+
     def check_hover(self) -> None:
         # if mouse is outside of board, then no piece is selected
         if not self._board_rect.collidepoint(self._mouse_pos):
@@ -217,11 +217,19 @@ class BoardWindow:
                 self._overlay_dirty = True
             return 
         
+        # This updates the moving piece sprite only when entering a different square
+        # thus making the motion choppy
+        
+        # new_hover: tuple[int, int] = self._file_rank_from_mouse_pos(self._mouse_pos)
+        # if new_hover != self._hovers_over:
+        #     self._hovers_over   = new_hover
+        #     self._needs_redraw  = True
+        #     self._overlay_dirty = True
+
         new_hover: tuple[int, int] = self._file_rank_from_mouse_pos(self._mouse_pos)
-        if new_hover != self._hovers_over:
-            self._hovers_over   = new_hover
-            self._needs_redraw  = True
-            self._overlay_dirty = True
+        self._hovers_over   = new_hover
+        self._needs_redraw  = True
+        self._overlay_dirty = True
         
     def _get_idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
         f, r = self._file_rank_from_mouse_pos(mouse_pos) 
