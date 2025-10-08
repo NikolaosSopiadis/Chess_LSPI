@@ -145,7 +145,6 @@ class Board:
         
         if  r_src < self._ranks - 2 and f_src > 0:
             move_idx = self.get_idx(f_src - 1, r_src + 2)
-            
             legal_moves.append(move_idx)
 
         if  r_src < self._ranks - 2 and f_src < self._files - 1:
@@ -176,12 +175,76 @@ class Board:
             move_idx = self.get_idx(f_src + 2, r_src - 1)
             legal_moves.append(move_idx)
             
-        print(f"tota moves = {len(legal_moves)}")
-
         return legal_moves
 
-    def _get_king_legal_moves(self, file: int, rank: int) -> list[int]:
-        return list()
+    def _get_king_legal_moves(self, src_square: int) -> list[int]:
+        legal_moves: list[int] = list()
+        src_piece: int = self._board[src_square]
+     
+        # Check if this is current players piece   
+        if p.is_white(src_piece) and not self._is_white_to_move:
+            return legal_moves
+        
+        if not p.is_white(src_piece) and self._is_white_to_move:
+            return legal_moves
+            
+        move_idx: int
+        f_src, r_src = self.idx_to_f_r(src_square)
+
+        r: int
+        f: int = f_src - 1
+        if f >= 0:
+            r = r_src - 1
+            if r >= 0:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                    legal_moves.append(move_idx)
+
+            r = r_src
+            move_idx = self.get_idx(f, r)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
+
+            r = r_src + 1
+            if r < self._ranks:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                    legal_moves.append(move_idx)
+            
+        f = f_src 
+        if f >= 0:
+            r = r_src - 1
+            if r >= 0:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                    legal_moves.append(move_idx)
+
+            r = r_src + 1
+            if r < self._ranks:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                    legal_moves.append(move_idx)
+            
+        f = f_src + 1
+        if f < self._files:
+            r = r_src - 1
+            if r >= 0:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                    legal_moves.append(move_idx)
+
+            r = r_src
+            move_idx = self.get_idx(f, r)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
+
+            r = r_src + 1
+            if r < self._ranks:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                    legal_moves.append(move_idx)
+            
+        return legal_moves
 
     def _get_diagonal_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
@@ -196,9 +259,6 @@ class Board:
             
         move_idx: int
         f_src, r_src = self.idx_to_f_r(src_square)
-
-
-        print(f"Legal moves for idx = {src_square}, (f,r) = ({f_src},{r_src})")
 
         m: int = max(self._files, self._ranks)
 
@@ -350,7 +410,7 @@ class Board:
                 legal_moves = self._get_diagonal_legal_moves(idx) + self._get_orthogonal_legal_moves(idx)
 
             case p.KING:
-                legal_moves = self._get_king_legal_moves(file, rank)
+                legal_moves = self._get_king_legal_moves(idx)
 
             case _:
                 legal_moves = list()
