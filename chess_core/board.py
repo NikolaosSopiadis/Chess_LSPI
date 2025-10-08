@@ -109,9 +109,6 @@ class Board:
     def get_idx(self, f: int, r: int) -> int:
         return f + (r * self._files)
 
-    def _get_pawn_legal_moves(self, file: int, rank: int) -> list[int]:
-        return list()
-
     # Returns 0 on empty, -1 on enemy piece and 1 on own piece
     def _check_enemy_piece(self, dst: int) -> int:
         piece_at_dst: int = self._board[dst]
@@ -129,6 +126,9 @@ class Board:
             return self.ENEMY_PIECE
         return self.OWN_PIECE
 
+    def _get_pawn_legal_moves(self, src_square: int) -> list[int]:
+        return list()
+
     def _get_knight_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
         src_piece: int = self._board[src_square]
@@ -145,35 +145,43 @@ class Board:
         
         if  r_src < self._ranks - 2 and f_src > 0:
             move_idx = self.get_idx(f_src - 1, r_src + 2)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
 
         if  r_src < self._ranks - 2 and f_src < self._files - 1:
             move_idx = self.get_idx(f_src + 1, r_src + 2)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
 
         if  r_src < self._ranks - 1 and f_src > 1:
             move_idx = self.get_idx(f_src - 2, r_src + 1)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
 
         if  r_src < self._ranks - 1 and f_src < self._files - 2:
             move_idx = self.get_idx(f_src + 2, r_src + 1)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
 
         if  r_src > 0 and f_src > 0:
             move_idx = self.get_idx(f_src - 1, r_src - 2)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
 
         if  r_src > 0 and f_src < self._files - 1:
             move_idx = self.get_idx(f_src + 1, r_src - 2)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
 
         if  r_src > 1 and f_src > 1:
             move_idx = self.get_idx(f_src - 2, r_src - 1)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
 
         if  r_src > 1 and f_src < self._files - 2:
             move_idx = self.get_idx(f_src + 2, r_src - 1)
-            legal_moves.append(move_idx)
+            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                legal_moves.append(move_idx)
             
         return legal_moves
 
@@ -394,7 +402,7 @@ class Board:
         
         match p.piece_type(piece):
             case p.PAWN:
-                legal_moves = self._get_pawn_legal_moves(file, rank)
+                legal_moves = self._get_pawn_legal_moves(idx)
 
             case p.KNIGHT:
                 legal_moves = self._get_knight_legal_moves(idx)
