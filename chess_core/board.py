@@ -34,7 +34,7 @@ class Board:
         # x0: left, x1: right
         self._can__castle: list[bool] = [True, True, True, True] 
         # self._can_pawn_be_taken_with_en_passant[color][file]
-        self._can_pawn_be_taken_with_en_passant: npt.NDArray[np.bool] = np.full((2,self._grid_size), False)
+        self._can_pawn_be_taken_with_en_passant: npt.NDArray[np.bool] = np.full((2,self._files), False)
         
         self._is_white_to_move: bool = True
 
@@ -87,17 +87,40 @@ class Board:
         if src == dst:
             return False
 
-        # # Only make legal moves
-        # f_src, r_src = self.idx_to_f_r(src)
-        # legal_moves: list[int] = self.get_legal_moves(f_src, r_src)       
-        # if dst not in legal_moves:
-        #     return False
+        f_src, r_src = self.idx_to_f_r(src)
+        f_dst, r_dst = self.idx_to_f_r(dst)
+
+        # Only make legal moves
+        legal_moves: list[int] = self.get_legal_moves(f_src, r_src)       
+        if dst not in legal_moves:
+            return False
+
+        # Reset en passant board
+        col: int = self.EN_PASSANT_CHECK_WHITE if self._is_white_to_move else self.EN_PASSANT_CHECK_BLACK
+        self._can_pawn_be_taken_with_en_passant[col] = np.full(self._files, False)
+
+        # Update en passant
+        if p.piece_type(src_piece) == p.PAWN and (r_dst - r_src == 2 or r_dst - r_src == -2):
+            self._can_pawn_be_taken_with_en_passant[col][f_dst] = True
 
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 
         
+        # Captured en passant
+        enemy_col: int = self.EN_PASSANT_CHECK_BLACK if self._is_white_to_move else self.EN_PASSANT_CHECK_WHITE
+        if self._can_pawn_be_taken_with_en_passant[col][f_dst] == True and \
+            self._check_enemy_piece(dst) == self.NO_PIECE: 
+        
+                if self._is_white_to_move and \
+                   self._check_enemy_piece(dst - self._files) == self.ENEMY_PIECE:                      
+                        self._board[dst - self._files] = p.NONE 
+
+                elif not self._is_white_to_move and \
+                     self._check_enemy_piece(dst + self._files) == self.ENEMY_PIECE:                      
+                        self._board[dst + self._files] = p.NONE 
+
         # Change turn
-        # self._is_white_to_move = not self._is_white_to_move
+        self._is_white_to_move = not self._is_white_to_move
         
         return True
     
@@ -169,8 +192,9 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True:
+                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True and \
+                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._check_enemy_piece(move_idx - self._files) == self.ENEMY_PIECE:                      
                             legal_moves.append(move_idx)
 
                 # Capture left
@@ -182,8 +206,9 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True:
+                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True and \
+                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._check_enemy_piece(move_idx - self._files) == self.ENEMY_PIECE:
                             legal_moves.append(move_idx)
         
         # Black pawn
@@ -213,8 +238,9 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True:
+                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_WHITE][f] == True and \
+                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._check_enemy_piece(move_idx + self._files) == self.ENEMY_PIECE:
                             legal_moves.append(move_idx)
 
                 # Capture left
@@ -226,8 +252,9 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_WHITE][f] == True:
+                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_WHITE][f] == True and \
+                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._check_enemy_piece(move_idx + self._files) == self.ENEMY_PIECE:
                             legal_moves.append(move_idx)
                             
 
