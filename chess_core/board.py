@@ -20,8 +20,8 @@ class Board:
     BLACK_CASTLE_LEFT: int  = CASTLE_BLACK | CASTLE_LEFT
     BLACK_CASTLE_RIGHT: int = CASTLE_BLACK | CASTLE_RIGHT
     
-    DOUBLE_PAWN_MOVES_WHITE: int = 0
-    DOUBLE_PAWN_MOVES_WHITE: int = 1
+    EN_PASSANT_CHECK_WHITE: int = 0
+    EN_PASSANT_CHECK_BLACK: int = 1
     
     def __init__(self, ranks=8, files=8):
         self._ranks:     int = ranks
@@ -33,8 +33,8 @@ class Board:
         # 0x: white, 1x:black
         # x0: left, x1: right
         self._can__castle: list[bool] = [True, True, True, True] 
-        # self._can_pawn_move_two_up[color][file]
-        self._can_pawn_move_two_up: npt.NDArray[np.bool] = np.full((2,self._grid_size), True)
+        # self._can_pawn_be_taken_with_en_passant[color][file]
+        self._can_pawn_be_taken_with_en_passant: npt.NDArray[np.bool] = np.full((2,self._grid_size), False)
         
         self._is_white_to_move: bool = True
 
@@ -127,7 +127,112 @@ class Board:
         return self.OWN_PIECE
 
     def _get_pawn_legal_moves(self, src_square: int) -> list[int]:
-        return list()
+        legal_moves: list[int] = list()
+        src_piece: int = self._board[src_square]
+     
+        # Check if this is current players piece   
+        if p.is_white(src_piece) and not self._is_white_to_move:
+            return legal_moves
+        
+        if not p.is_white(src_piece) and self._is_white_to_move:
+            return legal_moves
+            
+        move_idx: int
+        f_src, r_src = self.idx_to_f_r(src_square)
+        f: int
+        r: int
+        
+        # White pawn
+        if p.is_white(src_piece):
+            # If in starting rank, then can move two squares up
+            if r_src == 1:
+                f = f_src
+                r = r_src + 2
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                    
+            # One move up
+            f = f_src
+            r = r_src + 1
+            if r < self._ranks:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
+                    legal_moves.append(move_idx)
+
+                # Capture right
+                f = f_src + 1
+                r = r_src + 1
+                if f < self._files:
+                    move_idx = self.get_idx(f, r)
+                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
+                        legal_moves.append(move_idx)
+                        
+                    # En passant
+                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True:
+                            legal_moves.append(move_idx)
+
+                # Capture left
+                f = f_src - 1
+                r = r_src + 1
+                if f  >= 0:
+                    move_idx = self.get_idx(f, r)
+                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
+                        legal_moves.append(move_idx)
+                        
+                    # En passant
+                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True:
+                            legal_moves.append(move_idx)
+        
+        # Black pawn
+        else:
+            # If in starting rank, then can move two squares up
+            if r_src == self._ranks - 2:
+                f = f_src
+                r = r_src - 2
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
+                    legal_moves.append(move_idx)
+                    
+            # One move up
+            f = f_src
+            r = r_src - 1
+            if r < self._ranks:
+                move_idx = self.get_idx(f, r)
+                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
+                    legal_moves.append(move_idx)
+
+                # Capture right
+                f = f_src + 1
+                r = r_src - 1
+                if f < self._files:
+                    move_idx = self.get_idx(f, r)
+                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
+                        legal_moves.append(move_idx)
+                        
+                    # En passant
+                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True:
+                            legal_moves.append(move_idx)
+
+                # Capture left
+                f = f_src - 1
+                r = r_src - 1
+                if f  >= 0:
+                    move_idx = self.get_idx(f, r)
+                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
+                        legal_moves.append(move_idx)
+                        
+                    # En passant
+                    if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                       self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_WHITE][f] == True:
+                            legal_moves.append(move_idx)
+                            
+
+        return legal_moves
+
 
     def _get_knight_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
