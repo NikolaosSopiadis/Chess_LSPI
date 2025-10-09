@@ -103,12 +103,9 @@ class Board:
         if p.piece_type(src_piece) == p.PAWN and (r_dst - r_src == 2 or r_dst - r_src == -2):
             self._can_pawn_be_taken_with_en_passant[col][f_dst] = True
 
-        self._board[dst] = self._board[src]
-        self._board[src] = p.NONE 
-        
         # Captured en passant
         enemy_col: int = self.EN_PASSANT_CHECK_BLACK if self._is_white_to_move else self.EN_PASSANT_CHECK_WHITE
-        if self._can_pawn_be_taken_with_en_passant[col][f_dst] == True and \
+        if self._can_pawn_be_taken_with_en_passant[enemy_col][f_dst] == True and \
             self._check_enemy_piece(dst) == self.NO_PIECE: 
         
                 if self._is_white_to_move and \
@@ -119,6 +116,9 @@ class Board:
                      self._check_enemy_piece(dst + self._files) == self.ENEMY_PIECE:                      
                         self._board[dst + self._files] = p.NONE 
 
+        self._board[dst] = self._board[src]
+        self._board[src] = p.NONE 
+        
         # Change turn
         self._is_white_to_move = not self._is_white_to_move
         
