@@ -139,6 +139,7 @@ class Controller:
         
         return True
     
+    # TODO: SOS Cache legal moves since they are asked multiple times per second (each frame a square is highlighted)
     def get_legal_moves(self, square: int) -> list[int]:
         file, rank = self._model.idx_to_f_r(square)
         return self._model.get_legal_moves(file, rank)

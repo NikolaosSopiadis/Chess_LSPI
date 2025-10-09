@@ -10,15 +10,15 @@ class Board:
     ENEMY_PIECE: int = -1
     OWN_PIECE: int   = 1
     
-    CASTLE_LEFT: int  = 0
-    CASTLE_RIGHT: int = 1
-    CASTLE_WHITE: int = 0
-    CASTLE_BLACK: int = 2
+    CASTLE_QUEENSIDE: int = 0
+    CASTLE_KINGSIDE: int  = 1
+    CASTLE_WHITE: int     = 0
+    CASTLE_BLACK: int     = 2
     
-    WHITE_CASTLE_LEFT: int  = CASTLE_WHITE | CASTLE_LEFT
-    WHITE_CASTLE_RIGHT: int = CASTLE_WHITE | CASTLE_RIGHT
-    BLACK_CASTLE_LEFT: int  = CASTLE_BLACK | CASTLE_LEFT
-    BLACK_CASTLE_RIGHT: int = CASTLE_BLACK | CASTLE_RIGHT
+    WHITE_CASTLE_QUEENSIDE: int = CASTLE_WHITE | CASTLE_QUEENSIDE
+    WHITE_CASTLE_KINGSIDE: int  = CASTLE_WHITE | CASTLE_KINGSIDE
+    BLACK_CASTLE_QUEENSIDE: int = CASTLE_BLACK | CASTLE_QUEENSIDE
+    BLACK_CASTLE_KINGSIDE: int  = CASTLE_BLACK | CASTLE_KINGSIDE
     
     EN_PASSANT_CHECK_WHITE: int = 0
     EN_PASSANT_CHECK_BLACK: int = 1
@@ -32,7 +32,7 @@ class Board:
         
         # 0x: white, 1x:black
         # x0: left, x1: right
-        self._can__castle: list[bool] = [True, True, True, True] 
+        self._can_castle: list[bool] = [True, True, True, True] 
         # self._can_pawn_be_taken_with_en_passant[color][file]
         self._can_pawn_be_taken_with_en_passant: npt.NDArray[np.bool] = np.full((2,self._files), False)
         
@@ -99,9 +99,57 @@ class Board:
         col: int = self.EN_PASSANT_CHECK_WHITE if self._is_white_to_move else self.EN_PASSANT_CHECK_BLACK
         self._can_pawn_be_taken_with_en_passant[col] = np.full(self._files, False)
 
-        # Update en passant
-        if p.piece_type(src_piece) == p.PAWN and (r_dst - r_src == 2 or r_dst - r_src == -2):
-            self._can_pawn_be_taken_with_en_passant[col][f_dst] = True
+        match p.piece_type(src_piece):
+            case p.PAWN:
+                # Update en passant
+                if r_dst - r_src == 2 or r_dst - r_src == -2:
+                    self._can_pawn_be_taken_with_en_passant[col][f_dst] = True
+
+            case p.KING:
+                # Update castling rights
+                # Don't check for obstructions as they are already checked in get_legal_moves
+                if self._is_white_to_move:
+                    
+                    if self._can_castle[self.WHITE_CASTLE_QUEENSIDE] == True and dst == 1:
+                        # Castle queenside
+                        self._board[dst + 1] = p.WHITE_ROOK
+                        self._board[dst - 1] = p.NONE
+                    elif self._can_castle[self.WHITE_CASTLE_KINGSIDE] == True and dst == self._files - 2:
+                        # Castle kingside
+                        self._board[dst - 1] = p.WHITE_ROOK
+                        self._board[dst + 1] = p.NONE
+
+                    self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
+                    self._can_castle[self.WHITE_CASTLE_KINGSIDE]  = False
+                else:
+                    
+                    if self._can_castle[self.BLACK_CASTLE_QUEENSIDE] == True and dst == self._grid_size - 2:
+                        # Castle queenside
+                        self._board[dst - 1] = p.BLACK_ROOK
+                        self._board[dst + 1] = p.NONE
+                    elif self._can_castle[self.BLACK_CASTLE_KINGSIDE]  == True and dst == self._grid_size - self._files:
+                        # Castle kingside
+                        self._board[dst + 1] = p.BLACK_ROOK
+                        self._board[dst - 1] = p.NONE
+
+                    self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
+                    self._can_castle[self.BLACK_CASTLE_KINGSIDE]  = False
+
+            case p.ROOK:
+                # Update castling rights
+                # Left 
+                if f_src == 0: 
+                    if self._is_white_to_move:
+                        self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
+                    else:
+                        self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
+
+                elif f_src == self._files - 1:
+                    if self._is_white_to_move:
+                        self._can_castle[self.WHITE_CASTLE_KINGSIDE] = False
+                    else:
+                        self._can_castle[self.BLACK_CASTLE_KINGSIDE] = False
+                
 
         # Captured en passant
         enemy_col: int = self.EN_PASSANT_CHECK_BLACK if self._is_white_to_move else self.EN_PASSANT_CHECK_WHITE
@@ -382,6 +430,71 @@ class Board:
             if r < self._ranks:
                 move_idx = self.get_idx(f, r)
                 if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
+                    legal_moves.append(move_idx)
+
+        obstructed: bool
+        if self._is_white_to_move:
+            # Castle queenside
+            if self._can_castle[self.WHITE_CASTLE_QUEENSIDE]:
+                # Check for obstructions
+                obstructed = False
+                for i in range(1, self._files - f_src):
+                    f = f_src - i
+                    move_idx = self.get_idx(f, r_src)
+                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
+                        obstructed = True
+                        break
+                
+                if not obstructed:
+                    move_idx = self.get_idx(1, r_src)
+                    legal_moves.append(move_idx)
+
+            # Castle kingside
+            if self._can_castle[self.WHITE_CASTLE_KINGSIDE]:
+                # Check for obstructions
+                obstructed = False
+                for i in range(1, self._files - f_src - 1):
+                    f = f_src + i
+                    move_idx = self.get_idx(f, r_src)
+                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
+                        # print(f"White kingside castling obstructed by idx = {move_idx}")
+                        obstructed = True
+                        break
+                
+                if not obstructed:
+                    move_idx = self.get_idx(self._files - 2, r_src)
+                    legal_moves.append(move_idx)
+
+        else:
+            # Castle queenside
+            if self._can_castle[self.BLACK_CASTLE_QUEENSIDE]:
+                # Check for obstructions
+                obstructed = False
+                for i in range(1, self._files - f_src):
+                    f = f_src - i
+                    move_idx = self.get_idx(f, r_src)
+                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
+                        obstructed = True
+                        break
+                
+                if not obstructed:
+                    move_idx = self.get_idx(1, r_src)
+                    legal_moves.append(move_idx)
+
+            # Castle kingside
+            if self._can_castle[self.BLACK_CASTLE_KINGSIDE]:
+                # Check for obstructions
+                obstructed = False
+                for i in range(1, self._files - f_src - 1):
+                    f = f_src + i
+                    move_idx = self.get_idx(f, r_src)
+                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
+                        # print(f"White kingside castling obstructed by idx = {move_idx}")
+                        obstructed = True
+                        break
+                
+                if not obstructed:
+                    move_idx = self.get_idx(self._files - 2, r_src)
                     legal_moves.append(move_idx)
             
         return legal_moves
