@@ -106,34 +106,44 @@ class Board:
                     self._can_pawn_be_taken_with_en_passant[col][f_dst] = True
 
             case p.KING:
+                qs_dst = self.get_idx(2, r_src)             # c-file
+                ks_dst = self.get_idx(self._files-2, r_src) # g-file
+                
                 # Update castling rights
                 # Don't check for obstructions as they are already checked in get_legal_moves
                 if self._is_white_to_move:
                     
-                    if self._can_castle[self.WHITE_CASTLE_QUEENSIDE] == True and dst == 1:
+                    if self._can_castle[self.WHITE_CASTLE_QUEENSIDE] == True and dst == qs_dst:
                         # Castle queenside
-                        self._board[dst + 1] = p.WHITE_ROOK
-                        self._board[dst - 1] = p.NONE
-                    elif self._can_castle[self.WHITE_CASTLE_KINGSIDE] == True and dst == self._files - 2:
+                        # move rook a-file to d-file
+                        self._board[self.get_idx(3, r_src)] = p.WHITE_ROOK 
+                        self._board[self.get_idx(0, r_src)] = p.NONE
+                        
+                    elif self._can_castle[self.WHITE_CASTLE_KINGSIDE] == True and dst == ks_dst:
                         # Castle kingside
-                        self._board[dst - 1] = p.WHITE_ROOK
-                        self._board[dst + 1] = p.NONE
+                        # move rook h-file to f-file
+                        self._board[self.get_idx(self._files-3, r_src)] = p.WHITE_ROOK
+                        self._board[self.get_idx(self._files-1, r_src)] = p.NONE
 
                     self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
                     self._can_castle[self.WHITE_CASTLE_KINGSIDE]  = False
                 else:
                     
-                    if self._can_castle[self.BLACK_CASTLE_QUEENSIDE] == True and dst == self._grid_size - 2:
+                    if self._can_castle[self.BLACK_CASTLE_QUEENSIDE] == True and dst == qs_dst:
                         # Castle queenside
-                        self._board[dst - 1] = p.BLACK_ROOK
-                        self._board[dst + 1] = p.NONE
-                    elif self._can_castle[self.BLACK_CASTLE_KINGSIDE]  == True and dst == self._grid_size - self._files:
+                        # move rook a-file to d-file
+                        self._board[self.get_idx(3, r_src)] = p.BLACK_ROOK 
+                        self._board[self.get_idx(0, r_src)] = p.NONE
+
+                    elif self._can_castle[self.BLACK_CASTLE_KINGSIDE]  == True and dst == ks_dst:
                         # Castle kingside
-                        self._board[dst + 1] = p.BLACK_ROOK
-                        self._board[dst - 1] = p.NONE
+                        # move rook h-file to f-file
+                        self._board[self.get_idx(self._files-3, r_src)] = p.BLACK_ROOK
+                        self._board[self.get_idx(self._files-1, r_src)] = p.NONE
 
                     self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
                     self._can_castle[self.BLACK_CASTLE_KINGSIDE]  = False
+
 
             case p.ROOK:
                 # Update castling rights
@@ -446,7 +456,7 @@ class Board:
                         break
                 
                 if not obstructed:
-                    move_idx = self.get_idx(1, r_src)
+                    move_idx = self.get_idx(2, r_src)
                     legal_moves.append(move_idx)
 
             # Castle kingside
@@ -478,7 +488,7 @@ class Board:
                         break
                 
                 if not obstructed:
-                    move_idx = self.get_idx(1, r_src)
+                    move_idx = self.get_idx(2, r_src)
                     legal_moves.append(move_idx)
 
             # Castle kingside
