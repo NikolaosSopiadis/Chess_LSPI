@@ -230,8 +230,9 @@ class Board:
                 f = f_src
                 r = r_src + 2
                 move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
-                    legal_moves.append(move_idx)
+                if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                   self._check_enemy_piece(self.get_idx(f, r - 1)) == self.NO_PIECE:
+                     legal_moves.append(move_idx)
                     
             # One move up
             f = f_src
@@ -276,8 +277,9 @@ class Board:
                 f = f_src
                 r = r_src - 2
                 move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
-                    legal_moves.append(move_idx)
+                if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
+                   self._check_enemy_piece(self.get_idx(f, r + 1)) == self.NO_PIECE:
+                     legal_moves.append(move_idx)
                     
             # One move up
             f = f_src
