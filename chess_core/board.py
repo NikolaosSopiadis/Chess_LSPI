@@ -30,16 +30,16 @@ class Board:
 
         self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
         
+        # TODO: Change can_castle to a bit mask
         # 0x: white, 1x:black
         # x0: left, x1: right
         self._can_castle: list[bool] = [True, True, True, True] 
-        # self._can_pawn_be_taken_with_en_passant[color][file]
-        self._can_pawn_be_taken_with_en_passant: npt.NDArray[np.bool] = np.full((2,self._files), False)
+
+        self._en_passant_target: int | None = None
         
         self._is_white_to_move: bool = True
 
         self._init_board()
-        # self._board[0] = p.WHITE_ROOK
         
     def _init_board(self) -> None:
         self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
@@ -95,15 +95,15 @@ class Board:
         if dst not in legal_moves:
             return False
 
-        # Reset en passant board
-        col: int = self.EN_PASSANT_CHECK_WHITE if self._is_white_to_move else self.EN_PASSANT_CHECK_BLACK
-        self._can_pawn_be_taken_with_en_passant[col] = np.full(self._files, False)
+        # Reset en passant
+        en_passant_prev: int | None = self._en_passant_target
+        self._en_passant_target = None
 
         match p.piece_type(src_piece):
             case p.PAWN:
-                # Update en passant
+                # Update en passant on double pawn move
                 if r_dst - r_src == 2 or r_dst - r_src == -2:
-                    self._can_pawn_be_taken_with_en_passant[col][f_dst] = True
+                    self._en_passant_target = self.get_idx(f_dst, (r_src + r_dst)//2)
 
             case p.KING:
                 qs_dst = self.get_idx(2, r_src)             # c-file
@@ -152,7 +152,7 @@ class Board:
                         self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
                     else:
                         self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
-
+                # Right
                 elif f_src == self._files - 1:
                     if self._is_white_to_move:
                         self._can_castle[self.WHITE_CASTLE_KINGSIDE] = False
@@ -176,17 +176,11 @@ class Board:
                         self._can_castle[self.WHITE_CASTLE_KINGSIDE] = False
 
         # Captured en passant
-        enemy_col: int = self.EN_PASSANT_CHECK_BLACK if self._is_white_to_move else self.EN_PASSANT_CHECK_WHITE
-        if self._can_pawn_be_taken_with_en_passant[enemy_col][f_dst] == True and \
-            self._check_enemy_piece(dst) == self.NO_PIECE: 
-        
-                if self._is_white_to_move and \
-                   self._check_enemy_piece(dst - self._files) == self.ENEMY_PIECE:                      
-                        self._board[dst - self._files] = p.NONE 
-
-                elif not self._is_white_to_move and \
-                     self._check_enemy_piece(dst + self._files) == self.ENEMY_PIECE:                      
-                        self._board[dst + self._files] = p.NONE 
+        if en_passant_prev == dst:
+            if self._is_white_to_move: 
+                self._board[dst - self._files] = p.NONE 
+            else:
+                self._board[dst + self._files] = p.NONE 
 
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 
@@ -265,10 +259,8 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True and \
-                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._check_enemy_piece(move_idx - self._files) == self.ENEMY_PIECE:                      
-                            legal_moves.append(move_idx)
+                    if self._en_passant_target == move_idx:
+                        legal_moves.append(move_idx)
 
                 # Capture left
                 f = f_src - 1
@@ -279,11 +271,9 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_BLACK][f] == True and \
-                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._check_enemy_piece(move_idx - self._files) == self.ENEMY_PIECE:
-                            legal_moves.append(move_idx)
-        
+                    if self._en_passant_target == move_idx:
+                        legal_moves.append(move_idx)
+                    
         # Black pawn
         else:
             # If in starting rank, then can move two squares up
@@ -312,11 +302,9 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_WHITE][f] == True and \
-                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._check_enemy_piece(move_idx + self._files) == self.ENEMY_PIECE:
-                            legal_moves.append(move_idx)
-
+                    if self._en_passant_target == move_idx:
+                        legal_moves.append(move_idx)
+                    
                 # Capture left
                 f = f_src - 1
                 r = r_src - 1
@@ -326,12 +314,9 @@ class Board:
                         legal_moves.append(move_idx)
                         
                     # En passant
-                    if self._can_pawn_be_taken_with_en_passant[self.EN_PASSANT_CHECK_WHITE][f] == True and \
-                       self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                       self._check_enemy_piece(move_idx + self._files) == self.ENEMY_PIECE:
-                            legal_moves.append(move_idx)
-                            
-
+                    if self._en_passant_target == move_idx:
+                        legal_moves.append(move_idx)
+                    
         return legal_moves
 
 
