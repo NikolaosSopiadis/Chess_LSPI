@@ -4,6 +4,18 @@ import numpy.typing as npt
 from chess_core.piece import Piece as p
 from chess_core.move import Move, Promotion, MoveFlag
 
+# TODO: - Add promotions to make_move 
+#       - Update get_[piece]_legal_moves for the rest of the pieces,
+#       - Add promotion UI
+#       - Maybe rename get_legal_moves to get_pseudolegal_moves
+#       - Create get_legal_moves that checks for pins and checks
+#       - Add checkmate check and draw check (
+#           - same position 3 times
+#           - 50 move rule
+#           - insufficient material
+#           - stalemate)
+
+
 class Board:
 
     NO_PIECE: int    = 0
@@ -215,6 +227,57 @@ class Board:
         if p.is_white(piece_at_dst):
             return self.ENEMY_PIECE
         return self.OWN_PIECE
+
+    def _gen_pawn_moves(self, src: int) -> list[Move]:
+        assert p.is_white(self._board[src]) == self._is_white_to_move
+
+        moves: list[Move] = []
+        piece: int        = self._board[src]
+        white: bool       = p.is_white(piece)
+        f_src, r_src      = self.idx_to_f_r(src)
+        rank_direction    = 1 if white else -1
+        promotion_rank    = self._ranks - 1 if white else 0
+        start_rank        = 1 if white else self._ranks - 2
+
+        # One forward
+        r1: int = r_src + rank_direction
+        if 0 <= r1 < self._ranks:
+            dst = self.get_idx(f_src, r1)
+            if self._board[dst] == p.NONE:
+                if r1 == promotion_rank:
+                    for to in (Promotion.KNIGHT, Promotion.BISHOP, Promotion.ROOK, Promotion.QUEEN):
+                        self._push_move(moves, src, dst, promotion=to)
+                else:
+                    self._push_move(moves, src, dst)   
+
+                # Two forward
+                if r_src == start_rank:
+                    mid: int = self.get_idx(f_src, r_src + rank_direction)
+                    r2 = r_src + 2 * rank_direction
+                    dst2 = self.get_idx(f_src, r2)
+                    if self._board[mid] == p.NONE and self._board[dst2] == p.NONE:
+                        self._push_move(moves, src, dst2, double_pawn=True)
+
+        # Capturesa (left/right)
+        for df in (-1, 1):
+            f1: int = r_src + df
+            r1: int = r_src + rank_direction
+            
+            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
+                dst: int = self.get_idx(f1, r1)
+                target_piece: int = self._board[dst]
+                if target_piece != p.NONE and (p.is_white(target_piece) != white):
+                    if r1 == promotion_rank:
+                        for to in (Promotion.KNIGHT, Promotion.BISHOP, Promotion.ROOK, Promotion.QUEEN):
+                            self._push_move(moves, src, dst, promotion=to)
+                    else:
+                        self._push_move(moves, src, dst)   
+
+                # En passant
+                if self._en_passant_target == dst:
+                    self._push_move(moves, src, dst, en_passant=True)
+        
+        return moves
 
     def _get_pawn_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
