@@ -2,7 +2,7 @@ import numpy as np
 import numpy.typing as npt
 
 from chess_core.piece import Piece as p
-from chess_core.move import Move
+from chess_core.move import Move, Promotion, MoveFlag
 
 class Board:
 
@@ -685,3 +685,20 @@ class Board:
 
     def get_board(self) -> npt.NDArray[np.uint8]:
         return self._board
+
+    def _push_move(self, moves: list[Move], src: int, dst: int,
+                   promotion: Promotion = Promotion.NONE,
+                   en_passant: bool = False, castle: bool = False,
+                   double_pawn: bool = False) -> None:
+        captured: int = self._board[dst] # For en passant, calculate capture in make_move
+
+        if castle:
+            moves.append(Move.castle(src, dst))
+        elif en_passant:
+            moves.append(Move.en_passant(src, dst))
+        elif promotion:
+            moves.append(Move.promotion_to(src, dst, promotion, captured))
+        elif double_pawn:
+            moves.append(Move.double_pawn(src, dst))
+        else:
+            moves.append(Move.normal(src, dst, captured))
