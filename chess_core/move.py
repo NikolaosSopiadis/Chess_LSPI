@@ -17,7 +17,7 @@ class MoveFlag(IntFlag):
     PROMOTION   = 1 << 3
     DOUBLE_PAWN = 1 << 4
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Move:
     src_square: int # idx of source square
     dst_square: int # idx of destination square
