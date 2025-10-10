@@ -10,15 +10,10 @@ class Board:
     ENEMY_PIECE: int = -1
     OWN_PIECE: int   = 1
     
-    CASTLE_QUEENSIDE: int = 0
-    CASTLE_KINGSIDE: int  = 1
-    CASTLE_WHITE: int     = 0
-    CASTLE_BLACK: int     = 2
-    
-    WHITE_CASTLE_QUEENSIDE: int = CASTLE_WHITE | CASTLE_QUEENSIDE
-    WHITE_CASTLE_KINGSIDE: int  = CASTLE_WHITE | CASTLE_KINGSIDE
-    BLACK_CASTLE_QUEENSIDE: int = CASTLE_BLACK | CASTLE_QUEENSIDE
-    BLACK_CASTLE_KINGSIDE: int  = CASTLE_BLACK | CASTLE_KINGSIDE
+    WHITE_CASTLE_KINGSIDE: int  = 1<<0 
+    WHITE_CASTLE_QUEENSIDE: int = 1<<1 
+    BLACK_CASTLE_KINGSIDE: int  = 1<<2 
+    BLACK_CASTLE_QUEENSIDE: int = 1<<3
     
     EN_PASSANT_CHECK_WHITE: int = 0
     EN_PASSANT_CHECK_BLACK: int = 1
@@ -30,10 +25,10 @@ class Board:
 
         self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
         
-        # TODO: Change can_castle to a bit mask
-        # 0x: white, 1x:black
-        # x0: left, x1: right
-        self._can_castle: list[bool] = [True, True, True, True] 
+        self._castling_rights: int = ( self.WHITE_CASTLE_KINGSIDE 
+                                     | self .WHITE_CASTLE_QUEENSIDE
+                                     | self.BLACK_CASTLE_KINGSIDE 
+                                     | self.BLACK_CASTLE_QUEENSIDE)
 
         self._en_passant_target: int | None = None
         
@@ -113,51 +108,51 @@ class Board:
                 # Don't check for obstructions as they are already checked in get_legal_moves
                 if self._is_white_to_move:
                     
-                    if self._can_castle[self.WHITE_CASTLE_QUEENSIDE] == True and dst == qs_dst:
+                    if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE) and dst == qs_dst:
                         # Castle queenside
                         # move rook a-file to d-file
                         self._board[self.get_idx(3, r_src)] = p.WHITE_ROOK 
                         self._board[self.get_idx(0, r_src)] = p.NONE
                         
-                    elif self._can_castle[self.WHITE_CASTLE_KINGSIDE] == True and dst == ks_dst:
+                    elif self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE) == True and dst == ks_dst:
                         # Castle kingside
                         # move rook h-file to f-file
                         self._board[self.get_idx(self._files-3, r_src)] = p.WHITE_ROOK
                         self._board[self.get_idx(self._files-1, r_src)] = p.NONE
 
-                    self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
-                    self._can_castle[self.WHITE_CASTLE_KINGSIDE]  = False
+                    self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
+                    self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
                 else:
                     
-                    if self._can_castle[self.BLACK_CASTLE_QUEENSIDE] == True and dst == qs_dst:
+                    if self._has_castling_rights(self.BLACK_CASTLE_QUEENSIDE) and dst == qs_dst:
                         # Castle queenside
                         # move rook a-file to d-file
                         self._board[self.get_idx(3, r_src)] = p.BLACK_ROOK 
                         self._board[self.get_idx(0, r_src)] = p.NONE
 
-                    elif self._can_castle[self.BLACK_CASTLE_KINGSIDE]  == True and dst == ks_dst:
+                    elif self._has_castling_rights(self.BLACK_CASTLE_KINGSIDE) and dst == ks_dst:
                         # Castle kingside
                         # move rook h-file to f-file
                         self._board[self.get_idx(self._files-3, r_src)] = p.BLACK_ROOK
                         self._board[self.get_idx(self._files-1, r_src)] = p.NONE
 
-                    self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
-                    self._can_castle[self.BLACK_CASTLE_KINGSIDE]  = False
+                    self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
+                    self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
 
             case p.ROOK:
                 # Update castling rights
                 # Left 
                 if f_src == 0: 
                     if self._is_white_to_move:
-                        self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
+                        self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
                     else:
-                        self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
+                        self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
                 # Right
                 elif f_src == self._files - 1:
                     if self._is_white_to_move:
-                        self._can_castle[self.WHITE_CASTLE_KINGSIDE] = False
+                        self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
                     else:
-                        self._can_castle[self.BLACK_CASTLE_KINGSIDE] = False
+                        self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
 
         match p.piece_type(dst_piece):
             case p.ROOK:
@@ -165,15 +160,15 @@ class Board:
                 # White captured black's rook
                 if self._is_white_to_move:
                     if dst == self._grid_size - self._files - 1:
-                        self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
+                        self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
                     elif dst == self._grid_size - 1:
-                        self._can_castle[self.BLACK_CASTLE_KINGSIDE] = False
+                        self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
                 # Black captured white's rook
                 else:
                     if dst == 0:
-                        self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
+                        self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
                     elif dst == self._files - 1:
-                        self._can_castle[self.WHITE_CASTLE_KINGSIDE] = False
+                        self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
 
         # Captured en passant
         if en_passant_prev == dst:
@@ -189,6 +184,12 @@ class Board:
         self._is_white_to_move = not self._is_white_to_move
         
         return True
+
+    def _clear_castling_rights(self, mask: int) -> None:
+        self._castling_rights &= ~mask
+
+    def _has_castling_rights(self, mask: int) -> bool:
+        return (self._castling_rights & mask) != 0
     
     def idx_to_f_r(self, idx: int) -> tuple[int, int]:
         r: int = idx // self._files
@@ -446,7 +447,7 @@ class Board:
         obstructed: bool
         if self._is_white_to_move:
             # Castle queenside
-            if self._can_castle[self.WHITE_CASTLE_QUEENSIDE]:
+            if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE):
                 # Check for obstructions
                 obstructed = False
                 for i in range(1, self._files - f_src):
@@ -461,7 +462,7 @@ class Board:
                     legal_moves.append(move_idx)
 
             # Castle kingside
-            if self._can_castle[self.WHITE_CASTLE_KINGSIDE]:
+            if self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE):
                 # Check for obstructions
                 obstructed = False
                 for i in range(1, self._files - f_src - 1):
@@ -478,7 +479,7 @@ class Board:
 
         else:
             # Castle queenside
-            if self._can_castle[self.BLACK_CASTLE_QUEENSIDE]:
+            if self._has_castling_rights(self.BLACK_CASTLE_QUEENSIDE):
                 # Check for obstructions
                 obstructed = False
                 for i in range(1, self._files - f_src):
@@ -493,7 +494,7 @@ class Board:
                     legal_moves.append(move_idx)
 
             # Castle kingside
-            if self._can_castle[self.BLACK_CASTLE_KINGSIDE]:
+            if self._has_castling_rights(self.BLACK_CASTLE_KINGSIDE):
                 # Check for obstructions
                 obstructed = False
                 for i in range(1, self._files - f_src - 1):
