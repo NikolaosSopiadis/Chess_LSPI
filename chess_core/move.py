@@ -24,7 +24,7 @@ class Move:
 
     flags: MoveFlag      = MoveFlag.QUIET
     promotion: Promotion = Promotion.NONE
-    captured: int = 0 # idx of captrued piece
+    captured_piece: int = 0
 
     @staticmethod
     def normal(src: int, dst: int, captured: int = 0) -> Move:
