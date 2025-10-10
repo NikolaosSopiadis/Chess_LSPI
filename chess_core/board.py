@@ -144,7 +144,6 @@ class Board:
                     self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
                     self._can_castle[self.BLACK_CASTLE_KINGSIDE]  = False
 
-
             case p.ROOK:
                 # Update castling rights
                 # Left 
@@ -159,7 +158,22 @@ class Board:
                         self._can_castle[self.WHITE_CASTLE_KINGSIDE] = False
                     else:
                         self._can_castle[self.BLACK_CASTLE_KINGSIDE] = False
-                
+
+        match p.piece_type(dst_piece):
+            case p.ROOK:
+                # Remove castling rights if rook is captured
+                # White captured black's rook
+                if self._is_white_to_move:
+                    if dst == self._grid_size - self._files - 1:
+                        self._can_castle[self.BLACK_CASTLE_QUEENSIDE] = False
+                    elif dst == self._grid_size - 1:
+                        self._can_castle[self.BLACK_CASTLE_KINGSIDE] = False
+                # Black captured white's rook
+                else:
+                    if dst == 0:
+                        self._can_castle[self.WHITE_CASTLE_QUEENSIDE] = False
+                    elif dst == self._files - 1:
+                        self._can_castle[self.WHITE_CASTLE_KINGSIDE] = False
 
         # Captured en passant
         enemy_col: int = self.EN_PASSANT_CHECK_BLACK if self._is_white_to_move else self.EN_PASSANT_CHECK_WHITE
@@ -284,7 +298,7 @@ class Board:
             # One move up
             f = f_src
             r = r_src - 1
-            if r < self._ranks:
+            if r >= 0:
                 move_idx = self.get_idx(f, r)
                 if self._check_enemy_piece(move_idx) == self.NO_PIECE:
                     legal_moves.append(move_idx)
@@ -355,22 +369,22 @@ class Board:
             if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
                 legal_moves.append(move_idx)
 
-        if  r_src > 0 and f_src > 0:
+        if  r_src > 1 and f_src > 0:
             move_idx = self.get_idx(f_src - 1, r_src - 2)
             if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
                 legal_moves.append(move_idx)
 
-        if  r_src > 0 and f_src < self._files - 1:
+        if  r_src > 1 and f_src < self._files - 1:
             move_idx = self.get_idx(f_src + 1, r_src - 2)
             if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
                 legal_moves.append(move_idx)
 
-        if  r_src > 1 and f_src > 1:
+        if  r_src > 0 and f_src > 1:
             move_idx = self.get_idx(f_src - 2, r_src - 1)
             if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
                 legal_moves.append(move_idx)
 
-        if  r_src > 1 and f_src < self._files - 2:
+        if  r_src > 0 and f_src < self._files - 2:
             move_idx = self.get_idx(f_src + 2, r_src - 1)
             if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
                 legal_moves.append(move_idx)
