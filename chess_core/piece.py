@@ -10,7 +10,7 @@ class Piece:
     QUEEN: Final[int]  = 5
     KING: Final[int]   = 6
  
-    # Piece Colours
+    # Piece Colors
     WHITE: Final[int] = 0
     BLACK: Final[int] = 8
 
@@ -38,12 +38,12 @@ class Piece:
         return piece_type | piece_color
 
     @staticmethod
-    def is_colour(piece: int, colour: int):
-        return (piece & Piece.COLOR_MASK) == colour and piece != 0
+    def is_color(piece: int, color: int):
+        return (piece & Piece.COLOR_MASK) == color and piece != 0
 
     @staticmethod
     def is_white(piece: int):
-        return Piece.is_colour(piece, Piece.WHITE)
+        return Piece.is_color(piece, Piece.WHITE)
 
     @staticmethod
     def piece_color(piece: int):
