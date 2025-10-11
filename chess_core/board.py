@@ -238,7 +238,7 @@ class Board:
         start_rank        = 1 if white else self._ranks - 2
 
         assert white == self._is_white_to_move
-        assert piece != p.NONE
+        assert piece == p.PAWN
  
         # One forward
         r1: int = r_src + rank_direction
@@ -259,7 +259,7 @@ class Board:
                     if self._board[mid] == p.NONE and self._board[dst2] == p.NONE:
                         self._push_move(moves, src, dst2, double_pawn=True)
 
-        # Capturesa (left/right)
+        # Captures (left/right)
         for df in (-1, 1):
             f1: int = r_src + df
             r1: int = r_src + rank_direction
@@ -267,7 +267,7 @@ class Board:
             if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
                 dst: int = self.get_idx(f1, r1)
                 target_piece: int = self._board[dst]
-                if target_piece != p.NONE and (p.is_white(target_piece) != white):
+                if self._is_enemy(target_piece, white):
                     if r1 == promotion_rank:
                         for to in (Promotion.KNIGHT, Promotion.BISHOP, Promotion.ROOK, Promotion.QUEEN):
                             self._push_move(moves, src, dst, promotion=to)
@@ -287,7 +287,7 @@ class Board:
         f_src, r_src      = self.idx_to_f_r(src)
 
         assert white == self._is_white_to_move
-        assert piece != p.NONE
+        assert piece == p.KING
  
         # Move 1 square in all
         for dr in (-1, 0, 1):
@@ -299,8 +299,8 @@ class Board:
                 r = r_src + dr
                 if 0 <= f < self._files and 0 <= r < self._ranks:
                     dst = self.get_idx(f, r)
-                    target = self._board[dst]
-                    if target == p.NONE or (p.is_white(target) != white):
+                    target_piece = self._board[dst]
+                    if self._is_enemy(target_piece, white):
                         self._push_move(moves, src, dst)
 
         # Castling (obstructions only, checks and pins will be calculated later)
@@ -340,7 +340,7 @@ class Board:
         white: bool       = p.is_white(piece)
 
         assert white == self._is_white_to_move
-        assert piece != p.NONE
+        assert piece != p.KNIGHT
 
         f0, r0 = self.idx_to_f_r(src)
         jumps  = ((-1,+2), (+1,+2), (-2,+1), (+2,+1),
@@ -350,14 +350,74 @@ class Board:
             f: int = f0 + df
             r: int = r0 + dr
             if 0 <= f < self._files and 0 <= r < self._ranks:
-                dst: int       = self.get_idx(f, r)
-                dst_piece: int = self._board[dst]
-                if dst_piece == p.NONE:
-                    self._push_move(moves, src, dst)
-                elif self._is_enemy(dst_piece, white):
+                dst: int = self.get_idx(f, r)
+                target_piece: int = self._board[dst]
+                if self._is_enemy(target_piece, white):
                     self._push_move(moves, src, dst)
 
         return moves
+
+
+    def _gen_ray(self, src: int, df: int, dr: int) -> list[Move]:
+        """Scan in one direction until blocked; return quiet/capture moves."""
+        moves: list[Move] = []
+        piece: int        = self._board[src]
+        white: bool       = p.is_white(piece)
+        f, r              = self.idx_to_f_r(src)
+
+        while True:
+            f += df
+            r += dr
+            if not (0 <= f < self._files and 0 <= r < self._ranks):
+                break
+
+            dst: int    = self.get_idx(f, r)
+            target_target: int = self._board[dst]
+            if self._is_enemy(target_target, white):
+                    self._push_move(moves, src, dst)
+            # hit something (enemy or own): stop the ray
+            break
+
+        return moves
+
+    def _gen_diag_moves(self, src: int) -> list[Move]:
+        # bishop-like
+        moves: list[Move] = []
+        moves += self._gen_ray(src, +1, +1)
+        moves += self._gen_ray(src, +1, -1)
+        moves += self._gen_ray(src, -1, +1)
+        moves += self._gen_ray(src, -1, -1)
+        return moves
+
+    def _gen_ortho_moves(self, src: int) -> list[Move]:
+        # rook-like
+        moves: list[Move] = []
+        moves += self._gen_ray(src, +1,  0)
+        moves += self._gen_ray(src, -1,  0)
+        moves += self._gen_ray(src,  0, +1)
+        moves += self._gen_ray(src,  0, -1)
+        return moves
+
+    def _gen_bishop_moves(self, src: int) -> list[Move]:
+        piece = int(self._board[src])
+        assert p.piece_color(piece) == self._is_white_to_move
+        assert p.piece_type(piece) == p.BISHOP
+        
+        return self._gen_diag_moves(src)
+
+    def _gen_rook_moves(self, src: int) -> list[Move]:
+        piece = int(self._board[src])
+        assert p.piece_color(piece) == self._is_white_to_move
+        assert p.piece_type(piece) == p.ROOK
+
+        return self._gen_ortho_moves(src)
+
+    def _gen_queen_moves(self, src: int) -> list[Move]:
+        piece = int(self._board[src])
+        assert p.piece_color(piece) == self._is_white_to_move
+        assert p.piece_type(piece) == p.QUEEN
+
+        return self._gen_diag_moves(src) + self._gen_ortho_moves(src)
 
     def _get_pawn_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
