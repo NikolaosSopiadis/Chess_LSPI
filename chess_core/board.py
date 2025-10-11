@@ -229,8 +229,6 @@ class Board:
         return self.OWN_PIECE
 
     def _gen_pawn_moves(self, src: int) -> list[Move]:
-        assert p.is_white(self._board[src]) == self._is_white_to_move
-
         moves: list[Move] = []
         piece: int        = self._board[src]
         white: bool       = p.is_white(piece)
@@ -239,6 +237,9 @@ class Board:
         promotion_rank    = self._ranks - 1 if white else 0
         start_rank        = 1 if white else self._ranks - 2
 
+        assert white == self._is_white_to_move
+        assert piece != p.NONE
+ 
         # One forward
         r1: int = r_src + rank_direction
         if 0 <= r1 < self._ranks:
@@ -280,13 +281,14 @@ class Board:
         return moves
 
     def _gen_king_moves(self, src:int) -> list[Move]:
-        assert p.is_white(self._board[src]) == self._is_white_to_move
-
         moves: list[Move] = []
         piece: int        = self._board[src]
         white: bool       = p.is_white(piece)
         f_src, r_src      = self.idx_to_f_r(src)
 
+        assert white == self._is_white_to_move
+        assert piece != p.NONE
+ 
         # Move 1 square in all
         for dr in (-1, 0, 1):
             for df in (-1, 0, 1):
@@ -325,6 +327,36 @@ class Board:
             if not obstructed:
                 moves.append(Move.castle(src, kingside_dst))
         
+        return moves
+
+    def _is_enemy(self, piece: int, white_to_move: bool) -> bool:
+        if piece == p.NONE:
+            return False
+        return p.is_white(piece) != white_to_move
+
+    def _gen_knignt_moves(self, src: int) -> list[Move]:
+        moves: list[Move] = []
+        piece: int        = self._board[src]
+        white: bool       = p.is_white(piece)
+
+        assert white == self._is_white_to_move
+        assert piece != p.NONE
+
+        f0, r0 = self.idx_to_f_r(src)
+        jumps  = ((-1,+2), (+1,+2), (-2,+1), (+2,+1),
+                  (-2,-1), (+2,+1), (-1,-2), (+1,-2))
+
+        for df, dr in jumps:
+            f: int = f0 + df
+            r: int = r0 + dr
+            if 0 <= f < self._files and 0 <= r < self._ranks:
+                dst: int       = self.get_idx(f, r)
+                dst_piece: int = self._board[dst]
+                if dst_piece == p.NONE:
+                    self._push_move(moves, src, dst)
+                elif self._is_enemy(dst_piece, white):
+                    self._push_move(moves, src, dst)
+
         return moves
 
     def _get_pawn_legal_moves(self, src_square: int) -> list[int]:
