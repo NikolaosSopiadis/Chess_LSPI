@@ -96,10 +96,13 @@ class Board:
 
         f_src, r_src = self.idx_to_f_r(src)
         f_dst, r_dst = self.idx_to_f_r(dst)
+        src_idx: int = self.get_idx(f_src, r_src)
 
         # Only make legal moves
-        legal_moves: list[int] = self.get_legal_moves(f_src, r_src)       
-        if dst not in legal_moves:
+        legal_moves: list[Move] = self.get_legal_moves(src_idx)       
+        # Currently move has no flags so it only moves to empty squares will match
+        # if move not in legal_moves:
+        if all(m.dst_square != dst for m in legal_moves):
             return False
 
         # Reset en passant
@@ -236,9 +239,6 @@ class Board:
         rank_direction    = 1 if white else -1
         promotion_rank    = self._ranks - 1 if white else 0
         start_rank        = 1 if white else self._ranks - 2
-
-        assert white == self._is_white_to_move
-        assert piece == p.PAWN
  
         # One forward
         r1: int = r_src + rank_direction
@@ -261,7 +261,7 @@ class Board:
 
         # Captures (left/right)
         for df in (-1, 1):
-            f1: int = r_src + df
+            f1: int = f_src + df
             r1: int = r_src + rank_direction
             
             if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
@@ -286,9 +286,6 @@ class Board:
         white: bool       = p.is_white(piece)
         f_src, r_src      = self.idx_to_f_r(src)
 
-        assert white == self._is_white_to_move
-        assert piece == p.KING
- 
         # Move 1 square in all
         for dr in (-1, 0, 1):
             for df in (-1, 0, 1):
@@ -300,7 +297,7 @@ class Board:
                 if 0 <= f < self._files and 0 <= r < self._ranks:
                     dst = self.get_idx(f, r)
                     target_piece = self._board[dst]
-                    if self._is_enemy(target_piece, white):
+                    if target_piece == p.NONE or self._is_enemy(target_piece, white):
                         self._push_move(moves, src, dst)
 
         # Castling (obstructions only, checks and pins will be calculated later)
@@ -334,13 +331,10 @@ class Board:
             return False
         return p.is_white(piece) != white_to_move
 
-    def _gen_knignt_moves(self, src: int) -> list[Move]:
+    def _gen_knight_moves(self, src: int) -> list[Move]:
         moves: list[Move] = []
         piece: int        = self._board[src]
         white: bool       = p.is_white(piece)
-
-        assert white == self._is_white_to_move
-        assert piece != p.KNIGHT
 
         f0, r0 = self.idx_to_f_r(src)
         jumps  = ((-1,+2), (+1,+2), (-2,+1), (+2,+1),
@@ -352,7 +346,7 @@ class Board:
             if 0 <= f < self._files and 0 <= r < self._ranks:
                 dst: int = self.get_idx(f, r)
                 target_piece: int = self._board[dst]
-                if self._is_enemy(target_piece, white):
+                if target_piece == p.NONE or self._is_enemy(target_piece, white):
                     self._push_move(moves, src, dst)
 
         return moves
@@ -372,9 +366,12 @@ class Board:
                 break
 
             dst: int    = self.get_idx(f, r)
-            target_target: int = self._board[dst]
-            if self._is_enemy(target_target, white):
-                    self._push_move(moves, src, dst)
+            target_piece: int = self._board[dst]
+            if target_piece == p.NONE:
+                self._push_move(moves, src, dst)
+                continue
+            if self._is_enemy(target_piece, white):
+                self._push_move(moves, src, dst)
             # hit something (enemy or own): stop the ray
             break
 
@@ -399,492 +396,45 @@ class Board:
         return moves
 
     def _gen_bishop_moves(self, src: int) -> list[Move]:
-        piece = int(self._board[src])
-        assert p.piece_color(piece) == self._is_white_to_move
-        assert p.piece_type(piece) == p.BISHOP
-        
         return self._gen_diag_moves(src)
 
     def _gen_rook_moves(self, src: int) -> list[Move]:
-        piece = int(self._board[src])
-        assert p.piece_color(piece) == self._is_white_to_move
-        assert p.piece_type(piece) == p.ROOK
-
         return self._gen_ortho_moves(src)
 
     def _gen_queen_moves(self, src: int) -> list[Move]:
-        piece = int(self._board[src])
-        assert p.piece_color(piece) == self._is_white_to_move
-        assert p.piece_type(piece) == p.QUEEN
-
         return self._gen_diag_moves(src) + self._gen_ortho_moves(src)
-
-    def _get_pawn_legal_moves(self, src_square: int) -> list[int]:
-        legal_moves: list[int] = list()
-        src_piece: int = self._board[src_square]
-     
-        # Check if this is current players piece   
-        if p.is_white(src_piece) and not self._is_white_to_move:
-            return legal_moves
+    
+    def get_pseudolegal_moves(self, src: int) -> list[Move]:
+        piece: int = self._board[src]
         
-        if not p.is_white(src_piece) and self._is_white_to_move:
-            return legal_moves
-            
-        move_idx: int
-        f_src, r_src = self.idx_to_f_r(src_square)
-        f: int
-        r: int
-        
-        # White pawn
-        if p.is_white(src_piece):
-            # If in starting rank, then can move two squares up
-            if r_src == 1:
-                f = f_src
-                r = r_src + 2
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                   self._check_enemy_piece(self.get_idx(f, r - 1)) == self.NO_PIECE:
-                     legal_moves.append(move_idx)
-                    
-            # One move up
-            f = f_src
-            r = r_src + 1
-            if r < self._ranks:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
-                    legal_moves.append(move_idx)
-
-                # Capture right
-                f = f_src + 1
-                r = r_src + 1
-                if f < self._files:
-                    move_idx = self.get_idx(f, r)
-                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
-                        legal_moves.append(move_idx)
-                        
-                    # En passant
-                    if self._en_passant_target == move_idx:
-                        legal_moves.append(move_idx)
-
-                # Capture left
-                f = f_src - 1
-                r = r_src + 1
-                if f  >= 0:
-                    move_idx = self.get_idx(f, r)
-                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
-                        legal_moves.append(move_idx)
-                        
-                    # En passant
-                    if self._en_passant_target == move_idx:
-                        legal_moves.append(move_idx)
-                    
-        # Black pawn
-        else:
-            # If in starting rank, then can move two squares up
-            if r_src == self._ranks - 2:
-                f = f_src
-                r = r_src - 2
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) == self.NO_PIECE and \
-                   self._check_enemy_piece(self.get_idx(f, r + 1)) == self.NO_PIECE:
-                     legal_moves.append(move_idx)
-                    
-            # One move up
-            f = f_src
-            r = r_src - 1
-            if r >= 0:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) == self.NO_PIECE:
-                    legal_moves.append(move_idx)
-
-                # Capture right
-                f = f_src + 1
-                r = r_src - 1
-                if f < self._files:
-                    move_idx = self.get_idx(f, r)
-                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
-                        legal_moves.append(move_idx)
-                        
-                    # En passant
-                    if self._en_passant_target == move_idx:
-                        legal_moves.append(move_idx)
-                    
-                # Capture left
-                f = f_src - 1
-                r = r_src - 1
-                if f  >= 0:
-                    move_idx = self.get_idx(f, r)
-                    if self._check_enemy_piece(move_idx) == self.ENEMY_PIECE:
-                        legal_moves.append(move_idx)
-                        
-                    # En passant
-                    if self._en_passant_target == move_idx:
-                        legal_moves.append(move_idx)
-                    
-        return legal_moves
-
-
-    def _get_knight_legal_moves(self, src_square: int) -> list[int]:
-        legal_moves: list[int] = list()
-        src_piece: int = self._board[src_square]
-     
-        # Check if this is current players piece   
-        if p.is_white(src_piece) and not self._is_white_to_move:
-            return legal_moves
-        
-        if not p.is_white(src_piece) and self._is_white_to_move:
-            return legal_moves
-            
-        move_idx: int
-        f_src, r_src = self.idx_to_f_r(src_square)
-        
-        if  r_src < self._ranks - 2 and f_src > 0:
-            move_idx = self.get_idx(f_src - 1, r_src + 2)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-        if  r_src < self._ranks - 2 and f_src < self._files - 1:
-            move_idx = self.get_idx(f_src + 1, r_src + 2)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-        if  r_src < self._ranks - 1 and f_src > 1:
-            move_idx = self.get_idx(f_src - 2, r_src + 1)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-        if  r_src < self._ranks - 1 and f_src < self._files - 2:
-            move_idx = self.get_idx(f_src + 2, r_src + 1)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-        if  r_src > 1 and f_src > 0:
-            move_idx = self.get_idx(f_src - 1, r_src - 2)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-        if  r_src > 1 and f_src < self._files - 1:
-            move_idx = self.get_idx(f_src + 1, r_src - 2)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-        if  r_src > 0 and f_src > 1:
-            move_idx = self.get_idx(f_src - 2, r_src - 1)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-        if  r_src > 0 and f_src < self._files - 2:
-            move_idx = self.get_idx(f_src + 2, r_src - 1)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-            
-        return legal_moves
-
-    def _get_king_legal_moves(self, src_square: int) -> list[int]:
-        legal_moves: list[int] = list()
-        src_piece: int = self._board[src_square]
-     
-        # Check if this is current players piece   
-        if p.is_white(src_piece) and not self._is_white_to_move:
-            return legal_moves
-        
-        if not p.is_white(src_piece) and self._is_white_to_move:
-            return legal_moves
-            
-        move_idx: int
-        f_src, r_src = self.idx_to_f_r(src_square)
-
-        r: int
-        f: int = f_src - 1
-        if f >= 0:
-            r = r_src - 1
-            if r >= 0:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                    legal_moves.append(move_idx)
-
-            r = r_src
-            move_idx = self.get_idx(f, r)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-            r = r_src + 1
-            if r < self._ranks:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                    legal_moves.append(move_idx)
-            
-        f = f_src 
-        if f >= 0:
-            r = r_src - 1
-            if r >= 0:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                    legal_moves.append(move_idx)
-
-            r = r_src + 1
-            if r < self._ranks:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                    legal_moves.append(move_idx)
-            
-        f = f_src + 1
-        if f < self._files:
-            r = r_src - 1
-            if r >= 0:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                    legal_moves.append(move_idx)
-
-            r = r_src
-            move_idx = self.get_idx(f, r)
-            if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                legal_moves.append(move_idx)
-
-            r = r_src + 1
-            if r < self._ranks:
-                move_idx = self.get_idx(f, r)
-                if self._check_enemy_piece(move_idx) != self.OWN_PIECE:
-                    legal_moves.append(move_idx)
-
-        obstructed: bool
-        if self._is_white_to_move:
-            # Castle queenside
-            if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE):
-                # Check for obstructions
-                obstructed = False
-                for i in range(1, self._files - f_src):
-                    f = f_src - i
-                    move_idx = self.get_idx(f, r_src)
-                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
-                        obstructed = True
-                        break
-                
-                if not obstructed:
-                    move_idx = self.get_idx(2, r_src)
-                    legal_moves.append(move_idx)
-
-            # Castle kingside
-            if self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE):
-                # Check for obstructions
-                obstructed = False
-                for i in range(1, self._files - f_src - 1):
-                    f = f_src + i
-                    move_idx = self.get_idx(f, r_src)
-                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
-                        # print(f"White kingside castling obstructed by idx = {move_idx}")
-                        obstructed = True
-                        break
-                
-                if not obstructed:
-                    move_idx = self.get_idx(self._files - 2, r_src)
-                    legal_moves.append(move_idx)
-
-        else:
-            # Castle queenside
-            if self._has_castling_rights(self.BLACK_CASTLE_QUEENSIDE):
-                # Check for obstructions
-                obstructed = False
-                for i in range(1, self._files - f_src):
-                    f = f_src - i
-                    move_idx = self.get_idx(f, r_src)
-                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
-                        obstructed = True
-                        break
-                
-                if not obstructed:
-                    move_idx = self.get_idx(2, r_src)
-                    legal_moves.append(move_idx)
-
-            # Castle kingside
-            if self._has_castling_rights(self.BLACK_CASTLE_KINGSIDE):
-                # Check for obstructions
-                obstructed = False
-                for i in range(1, self._files - f_src - 1):
-                    f = f_src + i
-                    move_idx = self.get_idx(f, r_src)
-                    if self._check_enemy_piece(move_idx) != self.NO_PIECE:
-                        # print(f"White kingside castling obstructed by idx = {move_idx}")
-                        obstructed = True
-                        break
-                
-                if not obstructed:
-                    move_idx = self.get_idx(self._files - 2, r_src)
-                    legal_moves.append(move_idx)
-            
-        return legal_moves
-
-    def _get_diagonal_legal_moves(self, src_square: int) -> list[int]:
-        legal_moves: list[int] = list()
-        src_piece: int = self._board[src_square]
-     
-        # Check if this is current players piece   
-        if p.is_white(src_piece) and not self._is_white_to_move:
-            return legal_moves
-        
-        if not p.is_white(src_piece) and self._is_white_to_move:
-            return legal_moves
-            
-        move_idx: int
-        f_src, r_src = self.idx_to_f_r(src_square)
-
-        m: int = max(self._files, self._ranks)
-
-        for i in range(1, m):
-            f: int = f_src - i
-            r: int = r_src - i
-            if f < 0 or r < 0:
-                break
-            
-            move_idx = self.get_idx(f, r)
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-
-        for i in range(1, m):
-            f: int = f_src + i
-            r: int = r_src + i
-            if f >= self._files or r >= self._ranks:
-                break
-            
-            move_idx = self.get_idx(f, r)
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-        
-        for i in range(1, m):
-            f: int = f_src + i
-            r: int = r_src - i
-            if f >= self._files or r < 0:
-                break
-            
-            move_idx = self.get_idx(f, r)
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-
-        for i in range(1, m):
-            f: int = f_src - i
-            r: int = r_src + i
-            if f < 0 or r >= self._ranks:
-                break
-            
-            move_idx = self.get_idx(f, r)
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-
-        return legal_moves
-
-    def _get_orthogonal_legal_moves(self, src_square: int) -> list[int]:
-        legal_moves: list[int] = list()
-        src_piece: int = self._board[src_square]
-     
-        # Check if this is current players piece   
-        if p.is_white(src_piece) and not self._is_white_to_move:
-            return legal_moves
-        
-        if not p.is_white(src_piece) and self._is_white_to_move:
-            return legal_moves
-            
-        move_idx: int
-        f_src, r_src = self.idx_to_f_r(src_square)
-        for f in range(1, r_src + 1):
-            move_idx = src_square - f * self._files
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-            
-        for f in range(1, self._ranks - r_src):
-            move_idx = src_square + f * self._files
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-
-        for r in range(1, f_src + 1):
-            move_idx = src_square - r
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-            
-        for r in range(1, self._files - f_src):
-            move_idx = src_square + r
-            match self._check_enemy_piece(move_idx):
-                case self.NO_PIECE:
-                    legal_moves.append(move_idx)
-                case self.OWN_PIECE:
-                    break
-                case self.ENEMY_PIECE:
-                    legal_moves.append(move_idx)
-                    break
-
-        return legal_moves
-
-    def get_legal_moves(self, file: int, rank: int) -> list[int]:
-        idx: int = self.get_idx(file, rank)
-        piece = self._board[idx]
-        legal_moves: list[int]
+        if piece == p.NONE or self._is_enemy(piece, self._is_white_to_move):
+            return []
         
         match p.piece_type(piece):
             case p.PAWN:
-                legal_moves = self._get_pawn_legal_moves(idx)
-
+                return self._gen_pawn_moves(src)
+            
             case p.KNIGHT:
-                legal_moves = self._get_knight_legal_moves(idx)
-
+                return self._gen_knight_moves(src)
+            
             case p.BISHOP:
-                legal_moves = self._get_diagonal_legal_moves(idx)
+                return self._gen_bishop_moves(src)
             
             case p.ROOK:
-                # legal_moves = self._get_orthogonal_legal_moves(file, rank)
-                legal_moves = self._get_orthogonal_legal_moves(idx)
-
+                return self._gen_rook_moves(src)
+            
             case p.QUEEN:
-                legal_moves = self._get_diagonal_legal_moves(idx) + self._get_orthogonal_legal_moves(idx)
-
+                return self._gen_queen_moves(src)
+            
             case p.KING:
-                legal_moves = self._get_king_legal_moves(idx)
-
-            case _:
-                legal_moves = list()
-                
-
-        return legal_moves
+                return self._gen_king_moves(src)
+            
+        return []
+    
+    def get_legal_moves(self, src: int) -> list[Move]:
+        # Filter out moves that break a pin or do not address a check
+        
+        return self.get_pseudolegal_moves(src)
 
     def get_board(self) -> npt.NDArray[np.uint8]:
         return self._board

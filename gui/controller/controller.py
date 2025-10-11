@@ -113,33 +113,18 @@ class Controller:
         """
         move = Move(source, destination)
         return self._model.make_move(move)
-        # # Check if move is legal
-
-        # # Out of bounds
-        # if source < 0 or source >= self._grid_size:
-        #     return False
-        
-        # if destination < 0 or destination >= self._grid_size:
-        #     return False
-        
-        # src_piece = self._board[source]
-        # dst_piece = self._board[destination]
-        
-        # # Ignore empty squares
-        # if src_piece == p.NONE:
-        #     return False
-        
-        # # Ignore moves from and to the same square
-        # if source == destination:
-        #     return False
-        
-        # # Make move
-        # self._board[destination] = self._board[source]
-        # self._board[source]      = p.NONE
-        
-        return True
     
     # TODO: SOS Cache legal moves since they are asked multiple times per second (each frame a square is highlighted)
-    def get_legal_moves(self, square: int) -> list[int]:
-        file, rank = self._model.idx_to_f_r(square)
-        return self._model.get_legal_moves(file, rank)
+    # def get_legal_moves(self, square: int) -> list[int]:
+        # file, rank = self._model.idx_to_f_r(square)
+        # return self._model.get_legal_moves(file, rank)
+        return self._model.get_legal_moves(square)
+    
+    def get_moves(self, src: int, legal: bool = True) -> list[Move]:
+        if legal:
+            return self._model.get_legal_moves(src)
+        else:
+            return self._model.get_pseudolegal_moves(src)
+
+    def get_move_dests(self, src: int, legal: bool = True) -> list[int]:
+        return [m.dst_square for m in self.get_moves(src, legal=legal)]

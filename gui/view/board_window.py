@@ -301,7 +301,7 @@ class BoardWindow:
         # Draw legal moves
         legal_move_color: tuple[int, int, int, int] = (50, 255, 50, 128)
         square_idx: int = self._get_idx(f, r)
-        legal_moves = self._ctrl.get_legal_moves(square_idx)
+        legal_moves = self._ctrl.get_move_dests(square_idx)
         for lm in legal_moves:
             lm_f, lm_r = self._idx_to_f_r(lm)
             self._draw_overlay_square(lm_f, lm_r, legal_move_color)
