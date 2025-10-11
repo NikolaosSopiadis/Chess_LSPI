@@ -279,6 +279,54 @@ class Board:
         
         return moves
 
+    def _gen_king_moves(self, src:int) -> list[Move]:
+        assert p.is_white(self._board[src]) == self._is_white_to_move
+
+        moves: list[Move] = []
+        piece: int        = self._board[src]
+        white: bool       = p.is_white(piece)
+        f_src, r_src      = self.idx_to_f_r(src)
+
+        # Move 1 square in all
+        for dr in (-1, 0, 1):
+            for df in (-1, 0, 1):
+                if dr == 0 and df == 0:
+                    continue
+                
+                f = f_src + df
+                r = r_src + dr
+                if 0 <= f < self._files and 0 <= r < self._ranks:
+                    dst = self.get_idx(f, r)
+                    target = self._board[dst]
+                    if target == p.NONE or (p.is_white(target) != white):
+                        self._push_move(moves, src, dst)
+
+        # Castling (obstructions only, checks and pins will be calculated later)
+        queenside_dst = self.get_idx(2, r_src)
+        kingside_dst  = self.get_idx(self._files - 2, r_src)
+        
+        if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE if white else self.BLACK_CASTLE_QUEENSIDE):
+            obstructed = False
+            for f in range(f_src - 1, 0, -1):
+                castle_path = self.get_idx(f, r_src)
+                if self._check_enemy_piece(castle_path) != self.NO_PIECE:
+                    obstructed = True
+                    break
+            if not obstructed:
+                moves.append(Move.castle(src, queenside_dst))
+
+        if self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE if white else self.BLACK_CASTLE_KINGSIDE):
+            obstructed = False
+            for f in range(f_src + 1, self._files - 1):
+                castle_path = self.get_idx(f, r_src)
+                if self._check_enemy_piece(castle_path) != self.NO_PIECE:
+                    obstructed = True
+                    break
+            if not obstructed:
+                moves.append(Move.castle(src, kingside_dst))
+        
+        return moves
+
     def _get_pawn_legal_moves(self, src_square: int) -> list[int]:
         legal_moves: list[int] = list()
         src_piece: int = self._board[src_square]
