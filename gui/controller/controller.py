@@ -79,20 +79,13 @@ class Controller:
                         self._state = self.STOPPED
             
             case pg.MOUSEMOTION:
-                # self._view.update_mouse_pos(event.pos)
                 self._view.on_mouse_move(event.pos)
-                # print(f"moved to ({event.pos})")
                 
             case pg.MOUSEBUTTONDOWN:
-                # self._view.mouse_clicked(True, event.pos)
                 self._view.on_mouse_down(event.pos)
-                # print("mouse down")
                 
             case pg.MOUSEBUTTONUP:
-                # self._view.select_square()
-                # self._view.mouse_clicked(False, event.pos)
                 self._view.on_mouse_up(event.pos)
-                # print("mouse up")
                 
             case pgg.UI_BUTTON_PRESSED:
                 
