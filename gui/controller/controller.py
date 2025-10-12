@@ -17,7 +17,7 @@ class Controller:
         self._ranks: int = ranks
         self._files: int = files
         
-        self._view: MainWindow = MainWindow(self, 800*2, 600*2, "Chess")
+        self._view: MainWindow = MainWindow(self, 800*1, 600*1, "Chess")
         self._model: Board     = Board(ranks, files)
         
         self._grid_size = self._ranks * self._files
@@ -79,16 +79,19 @@ class Controller:
                         self._state = self.STOPPED
             
             case pg.MOUSEMOTION:
-                self._view.update_mouse_pos(event.pos)
+                # self._view.update_mouse_pos(event.pos)
+                self._view.on_mouse_move(event.pos)
                 # print(f"moved to ({event.pos})")
                 
             case pg.MOUSEBUTTONDOWN:
-                self._view.mouse_clicked(True, event.pos)
+                # self._view.mouse_clicked(True, event.pos)
+                self._view.on_mouse_down(event.pos)
                 # print("mouse down")
                 
             case pg.MOUSEBUTTONUP:
-                self._view.select_square()
-                self._view.mouse_clicked(False, event.pos)
+                # self._view.select_square()
+                # self._view.mouse_clicked(False, event.pos)
+                self._view.on_mouse_up(event.pos)
                 # print("mouse up")
                 
             case pgg.UI_BUTTON_PRESSED:
@@ -128,3 +131,9 @@ class Controller:
 
     def get_move_dests(self, src: int, legal: bool = True) -> list[int]:
         return [m.dst_square for m in self.get_moves(src, legal=legal)]
+    
+    def is_white_to_move(self) -> bool:
+        return self._model.get_is_white_to_move()
+
+    def is_friendly_piece(self, piece: int) -> bool:
+        return piece != p.NONE and (p.is_white(piece) == self.is_white_to_move())

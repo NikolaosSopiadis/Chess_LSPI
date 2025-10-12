@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from enum import Enum
 import pygame as pg
 import pygame_gui as pgg
 import numpy as np
@@ -10,6 +11,11 @@ from chess_core.piece import Piece as p
 # type-only, no runtime imports (to avoid circular dependency)
 if TYPE_CHECKING:
     from gui.controller.controller import Controller  
+
+class UIState(Enum):
+    IDLE     = 0
+    SELECTED = 1
+    DRAGGING = 2
     
 class BoardWindow:
     def __init__(self, controller: Controller, x0: int, y0: int,
@@ -34,6 +40,15 @@ class BoardWindow:
         self._ranks:       int = self._ctrl.get_ranks()
         self._files:       int = self._ctrl.get_files()
         self._square_size: int = self._height // max(self._files, self._ranks)
+        
+        self._ui_state: UIState               = UIState.IDLE
+        self._selected_idx: int               = -1       # board index, -1 if none
+        self._hover_idx: int                  = -1       # board index under cursor, -1 if none
+        self._drag_origin_idx: int            = -1       # where drag started
+        self._legal_dests: set[int]           = set()    # cached destinations for selected piece
+        self._mouse_down_pos: tuple[int, int] = (-1, -1) # (-1, -1) if none else (file, rank)
+
+        self._clear_selection_on_mouse_up: bool = False
         
         # Try to decrease resource utilization by not redrawing when not necessary
         self._needs_redraw:  bool = True         
@@ -149,10 +164,10 @@ class BoardWindow:
         # Clear layer
         self._pieces_surface.fill((0,0,0,0))
         pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
-        debug_text: bool = False
+        
         debug_text: bool = True
         if debug_text:
-            font: pg.font.Font = pg.font.Font(None, 40)
+            font: pg.font.Font = pg.font.Font(None, 20)
 
         for r in range(self._ranks):
             for f in range(self._files):
@@ -233,6 +248,8 @@ class BoardWindow:
         
     def _get_idx_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> int:
         f, r = self._file_rank_from_mouse_pos(mouse_pos) 
+        if f < 0 or r < 0 or f >= self._files or r >= self._ranks:
+            return -1
         return self._get_idx(f, r)
     
     def _file_rank_from_mouse_pos(self, mouse_pos: tuple[float, float]) -> tuple[int, int]:
@@ -244,11 +261,18 @@ class BoardWindow:
         return f,r
     
     def _draw_hover(self) -> None:
-        f, r = self._hovers_over
-        if f == -1 or r == -1:
+        if self._hover_idx == -1:
             return
+        f, r = self._idx_to_f_r(self._hover_idx)
         hover_color: tuple[int, int, int, int] = (200, 200, 0, 128)
         self._draw_overlay_square(f, r, hover_color)
+    
+    # def _draw_hover(self) -> None:
+    #     f, r = self._hovers_over
+    #     if f == -1 or r == -1:
+    #         return
+    #     hover_color: tuple[int, int, int, int] = (200, 200, 0, 128)
+    #     self._draw_overlay_square(f, r, hover_color)
         
     def select_square(self) -> None:
         # Ignore clicks outside the board
@@ -257,11 +281,11 @@ class BoardWindow:
             self._selected = (-1, -1)
             return
         
-        # If mouse_up != mouse_down, ignore
-        f_clicked, r_clicked = self._mouse_clicked_pos
-        if f != f_clicked or r != r_clicked:
-            self._selected = (-1, -1)
-            return
+        # # If mouse_up != mouse_down, ignore
+        # f_clicked, r_clicked = self._mouse_clicked_pos
+        # if f != f_clicked or r != r_clicked:
+        #     self._selected = (-1, -1)
+        #     return
 
         # If clicked on active square, remove selection
         f_s, r_s = self._selected
@@ -295,6 +319,7 @@ class BoardWindow:
         if f == -1 or r == -1:
             return
 
+        # Highlight the selected square
         selected_color: tuple[int, int, int, int] = (200, 100, 0, 128)
         self._draw_overlay_square(f, r, selected_color)
         
@@ -306,11 +331,6 @@ class BoardWindow:
             lm_f, lm_r = self._idx_to_f_r(lm)
             self._draw_overlay_square(lm_f, lm_r, legal_move_color)
             
-        self._board_dirty   = True
-        self._pieces_dirty  = True
-        self._overlay_dirty = True
-        self._needs_redraw  = True
-
     # TODO: Super important! f, r in board_window refer to the x,y relataive cordinates and not the file, rank in board
     # I need to fix it so view uses the absolute f,r from board       
     # Or at leaste re-write them in x,y to avoid confusion
@@ -388,3 +408,79 @@ class BoardWindow:
         self._overlay_surface:  pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
         self._composed_surface: pg.Surface = pg.Surface((new_width, new_height)).convert()
         self._board.set_dimensions((new_width, new_height))
+
+    def on_mouse_down(self, mouse_pos: tuple[float, float]) -> None:
+        self._mouse_clicked   = True
+        self._mouse_pos = mouse_pos
+        idx: int              = self._get_idx_from_mouse_pos(mouse_pos)
+        self._mouse_down_pos  = self._file_rank_from_mouse_pos(mouse_pos)
+        self._drag_origin_idx = idx
+        self._picked_up_piece = self._drag_origin_idx
+
+        if self._selected[0] != -1 and self._selected[1] != -1 and not self._is_friendly(idx):
+            # If a piece is selected, make move
+            selected_idx: int = self._get_idx(self._selected[0], self._selected[1])
+            self._ctrl.move_piece(selected_idx, idx)
+            self._selected = -1, -1
+
+        elif idx != -1 and self._is_friendly(idx):
+            # If the clicked piece is friendly, select it
+            selected_idx: int = self._get_idx(self._selected[0], self._selected[1])
+            if selected_idx != idx:
+                self._selected   = self._idx_to_f_r(idx)
+                self._legal_dests = set(self._ctrl.get_move_dests(idx))
+                self._clear_selection_on_mouse_up = False
+            else:
+                # If clicked on an already selected piece, remove the selection on mouse up
+                self._clear_selection_on_mouse_up = True
+        else:
+            # clear selection
+            self._legal_dests.clear()
+            self._selected = -1, -1
+        
+        self._pieces_dirty  = True
+        self._overlay_dirty = True
+        self._needs_redraw  = True
+            
+    def on_mouse_move(self, mouse_pos: tuple[float, float]) -> None:
+        self._mouse_pos = mouse_pos
+        new_hover: int  = self._get_idx_from_mouse_pos(mouse_pos)
+
+        if new_hover != self._hover_idx:
+            self._hover_idx     = new_hover
+            self._overlay_dirty = True
+            self._needs_redraw  = True
+
+        self._overlay_dirty   = True
+        self._needs_redraw    = True
+
+    def on_mouse_up(self, mouse_pos: tuple[float, float]) -> None:
+        self._mouse_clicked = False
+        dst: int = self._get_idx_from_mouse_pos(mouse_pos)
+
+        if dst == -1:
+            return
+        
+        if self._ctrl.get_pieces_on_board()[self._picked_up_piece] == p.NONE:
+            return
+
+        if self._mouse_down_pos == self._file_rank_from_mouse_pos(mouse_pos):
+            if self._clear_selection_on_mouse_up:
+                self._selected = -1, -1
+        else:
+            self._ctrl.move_piece(self._picked_up_piece, dst)
+            self._selected = -1, -1
+
+        self._legal_dests.clear()
+        self._picked_up_piece = -1
+        self._pieces_dirty    = True
+        self._overlay_dirty   = True
+        self._needs_redraw    = True
+                            
+    def _is_friendly(self, idx: int) -> bool:
+        if idx < 0 or idx >= self._ranks * self._files: 
+            return False
+        piece = int(self._ctrl.get_pieces_on_board()[idx])
+        if piece == p.NONE: 
+            return False
+        return self._ctrl.is_friendly_piece(piece)

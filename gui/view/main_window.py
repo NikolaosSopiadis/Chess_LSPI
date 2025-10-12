@@ -84,3 +84,12 @@ class MainWindow:
 
         self._board.resize(self._board_width, self._board_height)
         self._sidebar.resize(self._board_width, 0, self._sidebar_width, self._sidebar_height)
+
+    def on_mouse_down(self, mouse_pos: tuple[float, float]) -> None:
+        return self._board.on_mouse_down(mouse_pos)
+        
+    def on_mouse_move(self, mouse_pos: tuple[float, float]) -> None:
+        return self._board.on_mouse_move(mouse_pos)
+
+    def on_mouse_up(self, mouse_pos: tuple[float, float]) -> None:
+        return self._board.on_mouse_up(mouse_pos)

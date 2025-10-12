@@ -455,3 +455,6 @@ class Board:
             moves.append(Move.double_pawn(src, dst))
         else:
             moves.append(Move.normal(src, dst, captured))
+
+    def get_is_white_to_move(self) -> bool:
+        return self._is_white_to_move
