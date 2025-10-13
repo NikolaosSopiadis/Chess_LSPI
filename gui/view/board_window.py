@@ -8,6 +8,8 @@ import numpy.typing as npt
 
 from chess_core.piece import Piece as p
 
+# TODO: Chagne self._selected to use index instead of f,r
+
 # type-only, no runtime imports (to avoid circular dependency)
 if TYPE_CHECKING:
     from gui.controller.controller import Controller  
@@ -153,7 +155,7 @@ class BoardWindow:
         
         debug_text: bool = True
         if debug_text:
-            font: pg.font.Font = pg.font.Font(None, 20)
+            font: pg.font.Font = pg.font.Font(None, 40)
 
         for r in range(self._ranks):
             for f in range(self._files):
@@ -242,9 +244,7 @@ class BoardWindow:
         
         # Draw legal moves
         legal_move_color: tuple[int, int, int, int] = (50, 255, 50, 128)
-        square_idx: int = self._get_idx(f, r)
-        legal_moves = self._ctrl.get_move_dests(square_idx)
-        for lm in legal_moves:
+        for lm in self._legal_dests:
             lm_f, lm_r = self._idx_to_f_r(lm)
             self._draw_overlay_square(lm_f, lm_r, legal_move_color)
             
@@ -358,7 +358,6 @@ class BoardWindow:
             self._ctrl.move_piece(self._picked_up_piece, dst)
             self._selected = -1, -1
 
-        self._legal_dests.clear()
         self._picked_up_piece = -1
         self._pieces_dirty    = True
         self._overlay_dirty   = True
