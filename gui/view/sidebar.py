@@ -11,7 +11,7 @@ class Sidebar:
     
     def __init__(self, x0: int, y0: int, width: int, height: int, manager: pgg.UIManager, controller: Controller) -> None:
         self._x0:     int = x0
-        self._y0:     int = 0
+        self._y0:     int = y0
         self._width:  int = width
         self._height: int = height
         
