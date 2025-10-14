@@ -17,7 +17,7 @@ class Controller:
         self._ranks: int = ranks
         self._files: int = files
         
-        self._view: MainWindow = MainWindow(self, 800*1, 600*1, "Chess")
+        self._view: MainWindow = MainWindow(self, 800*2, 600*2, "Chess")
         self._model: Board     = Board(ranks, files)
         
         self._grid_size = self._ranks * self._files
@@ -130,3 +130,9 @@ class Controller:
 
     def is_friendly_piece(self, piece: int) -> bool:
         return piece != p.NONE and (p.is_white(piece) == self.is_white_to_move())
+
+    def get_moves_to(self, src: int, dst: int, *, legal: bool = True) -> list[Move]:
+        return [m for m in self.get_moves(src, legal=legal) if m.dst_square == dst]
+
+    def make_move(self, move: Move) -> bool:
+        return self._model.make_move(move)

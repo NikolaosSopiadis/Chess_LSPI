@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 
 from chess_core.piece import Piece as p
+from chess_core.move import Move, Promotion
 
 # TODO: Chagne self._selected to use index instead of f,r
 
@@ -46,10 +47,16 @@ class BoardWindow:
         self._clear_selection_on_mouse_up: bool = False
         
         # Try to decrease resource utilization by not redrawing when not necessary
-        self._needs_redraw:  bool = True         
-        self._board_dirty:   bool = True  # squares/flip/size changed
-        self._pieces_dirty:  bool = True  # pieces changed (on move)
-        self._overlay_dirty: bool = True  # hover/selection changed
+        self._needs_redraw:   bool = True         
+        self._board_dirty:    bool = True  # squares/flip/size changed
+        self._pieces_dirty:   bool = True  # pieces changed (on move)
+        self._overlay_dirty:  bool = True  # hover/selection changed
+        self._promotion_dirty: bool = False 
+
+        self._promotion_active:         bool = False 
+        self._promotion_options:  list[Move] = [] # candidate promotion moves
+        self._promotion_rects: list[pg.Rect] = [] # clickable rects per option
+        self._promotion_idx:                 int = -1
 
         self._selected:          tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
         self._picked_up_piece:               int = -1 # -1 if none else idx of picked up piece
@@ -59,10 +66,11 @@ class BoardWindow:
         
         self._board_rect: pg.Rect = pg.Rect(x0, y0, width, height)
         
-        self._board_surface:    pg.Surface = pg.Surface((width, height)).convert()
-        self._pieces_surface:   pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
-        self._overlay_surface:  pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
-        self._composed_surface: pg.Surface = pg.Surface((width, height)).convert()
+        self._board_surface:      pg.Surface = pg.Surface((width, height)).convert()
+        self._pieces_surface:     pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._overlay_surface:    pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._promotion_surface:  pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._composed_surface:   pg.Surface = pg.Surface((width, height)).convert()
 
         self._board: pgg.elements.UIImage = pgg.elements.UIImage(
             relative_rect = self._board_rect,
@@ -127,10 +135,18 @@ class BoardWindow:
         
         if self._overlay_dirty:
             self._rebuild_overlay_surface()
+
+        # if self._promotion_dirty:
+            # self._rebuild_promotion_ui()
         
         self._composed_surface.blit(self._board_surface, (0, 0))
         self._composed_surface.blit(self._pieces_surface, (0, 0))
         self._composed_surface.blit(self._overlay_surface, (0, 0))
+        
+        if self._promotion_active:
+            if self._promotion_dirty:
+                self._rebuild_promotion_ui()
+            self._composed_surface.blit(self._promotion_surface, (0, 0))
         
         self._board.set_image(self._composed_surface)  # update the displayed image 
         
@@ -370,3 +386,153 @@ class BoardWindow:
         if piece == p.NONE: 
             return False
         return self._ctrl.is_friendly_piece(piece)
+
+    def _show_promotion_ui(self, promotion_square: int) -> None:
+        
+        self._promotion_idx   = promotion_square
+        self._promotion_dirty = True
+        self._needs_redraw    = True
+    
+    def _rebuild_promotion_ui_mine(self) -> None:
+        f_prom, r_prom = self._idx_to_f_r(self._promotion_idx)
+        x0:     int = f_prom
+        y0:     int = r_prom
+        height: int = 4 * self._square_size
+        width:  int = self._square_size
+        white: bool = self._ctrl.is_white_to_move()
+
+        promotion_rect: pg.Rect = pg.Rect(0 ,0, width, height)
+
+        # Desaturate the whole board
+        self._promotion_surface.fill((0, 0, 0, 64))
+
+        promotion_bg: tuple[int, int, int, int] = ((200, 200, 200, 255))
+        pg.draw.rect(self._promotion_surface, promotion_bg, promotion_rect)
+
+        square: pg.Rect = pg.Rect(x0, y0, self._square_size, self._square_size)
+        piece:      int = p.WHITE_QUEEN if self._ctrl.is_white_to_move() else p.BLACK_QUEEN
+        self._draw_piece(piece, square)
+        
+        square = pg.Rect(x0, y0 + self._square_size, self._square_size, self._square_size)
+        piece  = p.WHITE_KNIGHT if white else p.BLACK_KNIGHT
+        self._draw_piece(piece, square)
+        
+        square = pg.Rect(x0, y0 + 2 * self._square_size, self._square_size, self._square_size)
+        piece  = p.WHITE_ROOK if white else p.BLACK_ROOK
+        self._draw_piece(piece, square)
+        
+        square = pg.Rect(x0, y0 + 3 * self._square_size, self._square_size, self._square_size)
+        piece  = p.WHITE_BISHOP if white else p.BLACK_BISHOP
+        self._draw_piece(piece, square)
+
+        self._promotion_dirty = False
+
+        # self._promotion_surface.blit(promotion_rect, (x0, y0))
+
+    def _make_move(self, src: int, dst: int) -> None:
+        promotion_rank = self._ranks - 1 if self._ctrl.is_white_to_move() else 0
+        f_dst, r_dst = self._idx_to_f_r(dst)
+
+        if r_dst == promotion_rank:
+            self._show_promotion_ui
+            # wait until user selects piece
+            # I need to update the events to handle promotion selection
+
+    def _enter_promotion_mode(self, src: int, dst: int) -> None:
+        # Ask controller for legal promotion candidates to that dst
+        promos: list[Move] = [m for m in self._ctrl.get_moves_to(src, dst)
+                if m.promotion != Promotion.NONE]
+        if not promos:
+            return  # nothing to do
+
+        self._promotion_active = True
+        self._promotion_idx = dst
+        # Optional: sort to your preferred order (Q, R, B, N)
+        order = {
+            Promotion.QUEEN: 0,
+            Promotion.KNIGHT:1,
+            Promotion.ROOK:  2,
+            Promotion.BISHOP:3,
+        }
+        self._promotion_options = sorted(promos, key=lambda m: order.get(m.promotion, 99))
+
+        self._promotion_dirty = True
+        self._needs_redraw    = True
+
+    def _exit_promotion_mode(self) -> None:
+        self._promotion_active = False
+        self._promotion_idx = -1
+        self._promotion_options.clear()
+        self._promotion_rects.clear()
+        self._promotion_surface.fill((0, 0, 0, 0))  # clear
+        self._promotion_dirty = True
+
+    def _rebuild_promotion_ui(self) -> None:
+        self._promotion_surface.fill((0, 0, 0, 0))
+        if not self._promotion_active or self._promotion_idx == -1:
+            self._promotion_dirty = False
+            return
+
+        # Slight board dim
+        dim = pg.Surface((self._width, self._height), pg.SRCALPHA)
+        dim.fill((0, 0, 0, 80))
+        self._promotion_surface.blit(dim, (0, 0))
+
+        # Anchor the column on the destination square
+        f, r = self._idx_to_f_r(self._promotion_idx)
+        x0 = f * self._square_size
+        y0 = r * self._square_size
+
+        # If the column would go off screen, flip it upward
+        col_h = len(self._promotion_options) * self._square_size
+        if y0 + col_h > self._height:
+            y0 = max(0, y0 - col_h + self._square_size)
+
+        # Background panel
+        panel_rect = pg.Rect(x0, y0, self._square_size, col_h)
+        pg.draw.rect(self._promotion_surface, (230, 230, 230, 255), panel_rect)
+
+        # Draw each option as a square with the piece sprite
+        self._promotion_rects = []
+        side_white = self._ctrl.is_white_to_move()
+        for i, m in enumerate(self._promotion_options):
+            cell = pg.Rect(x0, y0 + i * self._square_size, self._square_size, self._square_size)
+            self._promotion_rects.append(cell)
+            # hover effect
+            mx, my = self._mouse_pos
+            if cell.collidepoint(mx, my):
+                pg.draw.rect(self._promotion_surface, (200, 200, 0, 60), cell)
+
+            # piece code for sprite
+            if m.promotion == Promotion.QUEEN:
+                piece = p.WHITE_QUEEN if side_white else p.BLACK_QUEEN
+            elif m.promotion == Promotion.ROOK:
+                piece = p.WHITE_ROOK if side_white else p.BLACK_ROOK
+            elif m.promotion == Promotion.BISHOP:
+                piece = p.WHITE_BISHOP if side_white else p.BLACK_BISHOP
+            elif m.promotion == Promotion.KNIGHT:
+                piece = p.WHITE_KNIGHT if side_white else p.BLACK_KNIGHT
+            else:
+                continue
+
+            sprite = self._get_sprite(piece)
+            if sprite is not None:
+                self._promotion_surface.blit(sprite, cell)
+
+        self._promotion_dirty = False
+
+    def _try_move_or_prompt_promotion(self, src: int, dst: int) -> None:
+        # First see if there are any legal moves to dst
+        cands = self._ctrl.get_moves_to(src, dst)
+        if not cands:
+            return  # illegal drop
+
+        # If any candidate has a promotion, enter promotion mode
+        if any(m.promotion != Promotion.NONE for m in cands):
+            self._enter_promotion_mode(src, dst)
+            return
+
+        # Otherwise commit the single (or first) non-promotion move
+        self._ctrl.commit_move(cands[0])
+        self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
+        

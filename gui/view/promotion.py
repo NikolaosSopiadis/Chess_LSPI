@@ -21,3 +21,5 @@ class PromotionDialog:
         
         self._promotion_rect: pg.Rect = pg.Rect(0 ,0, self._width, self._height)
         self._promotion_surface: pg.Surface = pg.Surface((self._width, self._height), pg.SRCALPHA)
+        
+        
