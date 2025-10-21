@@ -141,12 +141,13 @@ class BoardWindow:
         
         self._composed_surface.blit(self._board_surface, (0, 0))
         self._composed_surface.blit(self._pieces_surface, (0, 0))
-        self._composed_surface.blit(self._overlay_surface, (0, 0))
         
         if self._promotion_active:
             if self._promotion_dirty:
                 self._rebuild_promotion_ui()
             self._composed_surface.blit(self._promotion_surface, (0, 0))
+
+        self._composed_surface.blit(self._overlay_surface, (0, 0))
         
         self._board.set_image(self._composed_surface)  # update the displayed image 
         
@@ -169,7 +170,7 @@ class BoardWindow:
         self._pieces_surface.fill((0,0,0,0))
         pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
         
-        debug_text: bool = True
+        debug_text: bool = False
         if debug_text:
             font: pg.font.Font = pg.font.Font(None, 40)
 
@@ -313,6 +314,11 @@ class BoardWindow:
         self._board.set_dimensions((new_width, new_height))
 
     def on_mouse_down(self, mouse_pos: tuple[float, float]) -> None:
+        if self._promotion_active:
+            # Only allow picking a promotion or clicking out
+            self._handle_promotion_click(mouse_pos)
+            return
+        
         self._mouse_clicked   = True
         self._mouse_pos = mouse_pos
         idx: int              = self._get_idx_from_mouse_pos(mouse_pos)
@@ -323,7 +329,8 @@ class BoardWindow:
         if self._selected[0] != -1 and self._selected[1] != -1 and not self._is_friendly(idx):
             # If a piece is selected, make move
             selected_idx: int = self._get_idx(self._selected[0], self._selected[1])
-            self._ctrl.move_piece(selected_idx, idx)
+            self._make_move(selected_idx, dst=idx)
+            # self._ctrl.move_piece(selected_idx, idx)
             self._selected = -1, -1
 
         elif idx != -1 and self._is_friendly(idx):
@@ -371,7 +378,8 @@ class BoardWindow:
             if self._clear_selection_on_mouse_up:
                 self._selected = -1, -1
         else:
-            self._ctrl.move_piece(self._picked_up_piece, dst)
+            self._make_move(self._picked_up_piece, dst)
+            # self._ctrl.move_piece(self._picked_up_piece, dst)
             self._selected = -1, -1
 
         self._picked_up_piece = -1
@@ -389,9 +397,9 @@ class BoardWindow:
 
     def _show_promotion_ui(self, promotion_square: int) -> None:
         
-        self._promotion_idx   = promotion_square
-        self._promotion_dirty = True
-        self._needs_redraw    = True
+        self._promotion_idx    = promotion_square
+        self._promotion_dirty  = True
+        self._needs_redraw     = True
     
     def _rebuild_promotion_ui_mine(self) -> None:
         f_prom, r_prom = self._idx_to_f_r(self._promotion_idx)
@@ -429,7 +437,7 @@ class BoardWindow:
 
         # self._promotion_surface.blit(promotion_rect, (x0, y0))
 
-    def _make_move(self, src: int, dst: int) -> None:
+    def _make_move_mine(self, src: int, dst: int) -> None:
         promotion_rank = self._ranks - 1 if self._ctrl.is_white_to_move() else 0
         f_dst, r_dst = self._idx_to_f_r(dst)
 
@@ -490,7 +498,7 @@ class BoardWindow:
 
         # Background panel
         panel_rect = pg.Rect(x0, y0, self._square_size, col_h)
-        pg.draw.rect(self._promotion_surface, (230, 230, 230, 255), panel_rect)
+        pg.draw.rect(self._promotion_surface, (210, 200, 200, 200), panel_rect)
 
         # Draw each option as a square with the piece sprite
         self._promotion_rects = []
@@ -498,10 +506,6 @@ class BoardWindow:
         for i, m in enumerate(self._promotion_options):
             cell = pg.Rect(x0, y0 + i * self._square_size, self._square_size, self._square_size)
             self._promotion_rects.append(cell)
-            # hover effect
-            mx, my = self._mouse_pos
-            if cell.collidepoint(mx, my):
-                pg.draw.rect(self._promotion_surface, (200, 200, 0, 60), cell)
 
             # piece code for sprite
             if m.promotion == Promotion.QUEEN:
@@ -521,7 +525,7 @@ class BoardWindow:
 
         self._promotion_dirty = False
 
-    def _try_move_or_prompt_promotion(self, src: int, dst: int) -> None:
+    def _make_move(self, src: int, dst: int) -> None:
         # First see if there are any legal moves to dst
         cands = self._ctrl.get_moves_to(src, dst)
         if not cands:
@@ -533,6 +537,27 @@ class BoardWindow:
             return
 
         # Otherwise commit the single (or first) non-promotion move
-        self._ctrl.commit_move(cands[0])
+        self._ctrl.make_move(cands[0])
         self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
         
+    # TODO: clean up promotion ui code
+    def _handle_promotion_click(self, mouse_pos: tuple[float, float]) -> None:
+        if not self._promotion_active:
+            return
+        mx, my = mouse_pos
+
+        # If clicked outside => (option A) cancel mode; (option B) do nothing
+        if not any(rect.collidepoint(mx, my) for rect in self._promotion_rects):
+            # pick one: cancel or keep modal
+            # Here: cancel modal without move
+            self._exit_promotion_mode()
+            self._overlay_dirty = self._needs_redraw = True
+            return
+
+        # Find which button
+        for rect, move in zip(self._promotion_rects, self._promotion_options):
+            if rect.collidepoint(mx, my):
+                self._ctrl.make_move(move)
+                self._exit_promotion_mode()
+                self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
+                break
