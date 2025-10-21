@@ -38,31 +38,31 @@ class Piece:
         return piece_type | piece_color
 
     @staticmethod
-    def is_color(piece: int, color: int):
+    def is_color(piece: int, color: int) -> bool:
         return (piece & Piece.COLOR_MASK) == color and piece != 0
 
     @staticmethod
-    def is_white(piece: int):
+    def is_white(piece: int) -> bool:
         return Piece.is_color(piece, Piece.WHITE)
 
     @staticmethod
-    def piece_color(piece: int):
+    def piece_color(piece: int) -> int:
         return piece & Piece.COLOR_MASK
 
     @staticmethod
-    def piece_type(piece: int):
+    def piece_type(piece: int) -> int:
         return piece & Piece.TYPE_MASK
 
     @staticmethod
-    def is_orthogonal_slider(piece: int):
+    def is_orthogonal_slider(piece: int) -> bool:
         return Piece.piece_type(piece) == Piece.ROOK or Piece.piece_type(piece) == Piece.QUEEN
 
     @staticmethod
-    def is_diagonal_slider(piece: int):
+    def is_diagonal_slider(piece: int) -> bool:
         return Piece.piece_type(piece) == Piece.BISHOP or Piece.piece_type(piece) == Piece.QUEEN
 
     @staticmethod
-    def is_sliding_piece(piece: int):
+    def is_sliding_piece(piece: int) -> bool:
         return Piece.is_orthogonal_slider(piece) or Piece.is_diagonal_slider(piece)
     
 
