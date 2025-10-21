@@ -72,6 +72,7 @@ class Board:
         self._board[62] = p.BLACK_KNIGHT
         self._board[63] = p.BLACK_ROOK
         
+    # TODO: cleanup make_move by better utilizing the flags in a match case block
     def make_move(self, move: Move) -> bool:
         src: int = move.src_square
         dst: int = move.dst_square
@@ -106,14 +107,38 @@ class Board:
             return False
 
         # Reset en passant
-        en_passant_prev: int | None = self._en_passant_target
+        # en_passant_prev: int | None = self._en_passant_target
         self._en_passant_target = None
 
         match p.piece_type(src_piece):
             case p.PAWN:
                 # Update en passant on double pawn move
-                if r_dst - r_src == 2 or r_dst - r_src == -2:
+                if move.check_flag(MoveFlag.DOUBLE_PAWN):
+                # if r_dst - r_src == 2 or r_dst - r_src == -2:
                     self._en_passant_target = self.get_idx(f_dst, (r_src + r_dst)//2)
+                elif move.check_flag(MoveFlag.PROMOTION):
+                    promo_piece: int
+                    piece_color: int = p.piece_color(src_piece)
+                    match move.promotion:
+                        case Promotion.QUEEN:
+                            promo_piece = p.make_piece(p.QUEEN, piece_color)
+                        case Promotion.KNIGHT:
+                            promo_piece = p.make_piece(p.KNIGHT, piece_color)
+                        case Promotion.BISHOP:
+                            promo_piece = p.make_piece(p.BISHOP, piece_color)
+                        case Promotion.ROOK:
+                            promo_piece = p.make_piece(p.ROOK, piece_color)
+                        case _:
+                            raise AssertionError("Promotion flag set with no promotion piece selected")
+
+                    self._board[src] = promo_piece
+                elif move.check_flag(MoveFlag.EN_PASSANT):
+                # if en_passant_prev == dst:
+                    if self._is_white_to_move: 
+                        self._board[dst - self._files] = p.NONE 
+                    else:
+                        self._board[dst + self._files] = p.NONE 
+                    
 
             case p.KING:
                 qs_dst = self.get_idx(2, r_src)             # c-file
@@ -154,6 +179,10 @@ class Board:
                     self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
                     self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
 
+                # TODO: change castling to use its flag
+                # if(move.check_flag(MoveFlag.CASTLE)):
+                    
+
             case p.ROOK:
                 # Update castling rights
                 # Left 
@@ -185,12 +214,13 @@ class Board:
                     elif dst == self._files - 1:
                         self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
 
-        # Captured en passant
-        if en_passant_prev == dst:
-            if self._is_white_to_move: 
-                self._board[dst - self._files] = p.NONE 
-            else:
-                self._board[dst + self._files] = p.NONE 
+        # # Captured en passant
+        # if move.check_flag(MoveFlag.EN_PASSANT):
+        # # if en_passant_prev == dst:
+        #     if self._is_white_to_move: 
+        #         self._board[dst - self._files] = p.NONE 
+        #     else:
+        #         self._board[dst + self._files] = p.NONE 
 
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE 

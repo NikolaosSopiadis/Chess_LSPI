@@ -49,3 +49,6 @@ class Move:
     @staticmethod
     def double_pawn(src: int, dst: int) -> Move:
         return Move(src, dst, MoveFlag.DOUBLE_PAWN)
+
+    def check_flag(self, flag: MoveFlag) -> bool:
+        return (self.flags & flag) == flag
