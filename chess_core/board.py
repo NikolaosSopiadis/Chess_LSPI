@@ -4,10 +4,7 @@ import numpy.typing as npt
 from chess_core.piece import Piece as p
 from chess_core.move import Move, Promotion, MoveFlag
 
-# TODO: - Add promotions to make_move 
-#       - Update get_[piece]_legal_moves for the rest of the pieces,
-#       - Add promotion UI
-#       - Maybe rename get_legal_moves to get_pseudolegal_moves
+# TODO:
 #       - Create get_legal_moves that checks for pins and checks
 #       - Add checkmate check and draw check (
 #           - same position 3 times
@@ -462,9 +459,26 @@ class Board:
         return []
     
     def get_legal_moves(self, src: int) -> list[Move]:
-        # Filter out moves that break a pin or do not address a check
-        
-        return self.get_pseudolegal_moves(src)
+        pseudo: list[Move] = self.get_pseudolegal_moves(src)
+        legal: list[Move] = []
+        piece: int = self._board[src]
+        white_to_move: bool = p.is_white(piece)
+
+        king_sq: int = self._find_king(white_to_move)
+        for move in pseudo:
+            # make a temporary copy
+            board_copy: npt.NDArray[np.uint8] = self._board.copy()
+            board_copy[move.dst_square] = board_copy[move.src_square]
+            board_copy[move.src_square] = p.NONE
+
+            # find new king position if moved
+            king_pos: int = move.dst_square if p.piece_type(piece) == p.KING else king_sq
+
+            if not self.is_square_attacked(king_pos, by_white=not white_to_move):
+                legal.append(move)
+
+        return legal
+
 
     def get_board(self) -> npt.NDArray[np.uint8]:
         return self._board
@@ -488,3 +502,77 @@ class Board:
 
     def get_is_white_to_move(self) -> bool:
         return self._is_white_to_move
+    
+    def is_square_attacked(self, square: int, by_white: bool) -> bool:
+        """Return True if `square` is attacked by the given color."""
+        f_src, r_src = self.idx_to_f_r(square)
+        board: npt.NDArray[np.uint8] = self._board
+
+        # --- Pawn attacks ---
+        pawn_dir: int = -1 if by_white else +1
+        for df in (-1, 1):
+            f1: int = f_src + df
+            r1: int = r_src + pawn_dir
+            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
+                idx = self.get_idx(f1, r1)
+                if board[idx] == (p.WHITE_PAWN if by_white else p.BLACK_PAWN):
+                    return True
+
+        # --- Knight attacks ---
+        for df, dr in ((1,2),(2,1),(2,-1),(1,-2),(-1,-2),(-2,-1),(-2,1),(-1,2)):
+            f1: int = f_src + df
+            r1: int = r_src + dr
+            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
+                idx = self.get_idx(f1, r1)
+                if board[idx] == (p.WHITE_KNIGHT if by_white else p.BLACK_KNIGHT):
+                    return True
+
+        # --- Sliding pieces (Bishop / Rook / Queen) ---
+        # Diagonals for Bishop/Queen
+        for df, dr in ((1,1),(1,-1),(-1,1),(-1,-1)):
+            f1: int = f_src + df
+            r1: int = r_src + dr
+            while 0 <= f1 < self._files and 0 <= r1 < self._ranks:
+                idx = self.get_idx(f1, r1)
+                piece = board[idx]
+                if piece == p.NONE:
+                    f1 += df; r1 += dr
+                    continue
+                if p.is_white(piece) == by_white:
+                    t = p.piece_type(piece)
+                    if t in (p.BISHOP, p.QUEEN):
+                        return True
+                break  # blocked
+
+        # Orthogonals for Rook/Queen
+        for df, dr in ((1,0),(-1,0),(0,1),(0,-1)):
+            f1: int = f_src + df
+            r1: int = r_src + dr
+            while 0 <= f1 < self._files and 0 <= r1 < self._ranks:
+                idx = self.get_idx(f1, r1)
+                piece = board[idx]
+                if piece == p.NONE:
+                    f1 += df; r1 += dr
+                    continue
+                if p.is_white(piece) == by_white:
+                    t = p.piece_type(piece)
+                    if t in (p.ROOK, p.QUEEN):
+                        return True
+                break  # blocked
+
+        # --- King attacks ---
+        for df, dr in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)):
+            f1: int = f_src + df
+            r1: int = r_src + dr
+            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
+                idx = self.get_idx(f1, r1)
+                if board[idx] == (p.WHITE_KING if by_white else p.BLACK_KING):
+                    return True
+
+        return False
+    
+    def _find_king(self, white: bool) -> int:
+        king_piece: int = p.WHITE_KING if white else p.BLACK_KING
+        idxs = np.where(self._board == king_piece)[0]
+        return int(idxs[0]) if len(idxs) > 0 else -1
+
