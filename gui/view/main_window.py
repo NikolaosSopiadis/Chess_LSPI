@@ -10,6 +10,7 @@ from gui.view.board_window import BoardWindow
 if TYPE_CHECKING:
     from gui.controller.controller import Controller  
 
+# TODO: stop using pgg ui_image for the board as it is very expensive.
 class MainWindow:
     
     def __init__(self, controller: Controller, width: int, height: int, title: str = "Chess") -> None:
@@ -32,7 +33,7 @@ class MainWindow:
         self._clock:        pg.Clock = pg.Clock()
         self._manager: pgg.UIManager = pgg.UIManager((width, height))
 
-        self._max_fps: int = 144
+        self._max_fps: int = 60
         self._dt:      float = self._clock.tick(self._max_fps) / 1000
         
         # Set up the game window
@@ -48,7 +49,7 @@ class MainWindow:
         
     def _update_clock(self) -> None:
         self._dt = self._clock.tick(self._max_fps) / 1000
-        self._dt = max(0.001, min(0.1, self._dt))
+        # self._dt = max(0.001, min(0.1, self._dt))
         
     def manager_process_events(self, event):
         self._manager.process_events(event)
