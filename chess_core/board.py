@@ -1,5 +1,6 @@
 from typing import Sequence
 from dataclasses import dataclass
+import random
 
 from chess_core.piece import Piece as p
 from chess_core.move import Move, Promotion, MoveFlag
@@ -30,8 +31,15 @@ class Undo:
     prev_is_white_to_move: bool
     prev_white_king_sq: int
     prev_black_king_sq: int
+    prev_zkey:int
     rook_src: int = -1                # for castling
     rook_dst: int = -1
+
+# For Zobrist hashing
+_ZRAND = random.Random(0xC0FFEE1234)  # deterministic
+
+def _rand64() -> int:
+    return _ZRAND.getrandbits(64)
 
 class Board:
 
@@ -43,6 +51,12 @@ class Board:
     WHITE_CASTLE_QUEENSIDE: int = 1<<1 
     BLACK_CASTLE_KINGSIDE: int  = 1<<2 
     BLACK_CASTLE_QUEENSIDE: int = 1<<3
+    
+    _Z_PIECES = (
+        p.WHITE_PAWN, p.WHITE_KNIGHT, p.WHITE_BISHOP, p.WHITE_ROOK, p.WHITE_QUEEN, p.WHITE_KING,
+        p.BLACK_PAWN, p.BLACK_KNIGHT, p.BLACK_BISHOP, p.BLACK_ROOK, p.BLACK_QUEEN, p.BLACK_KING,
+    )
+    _ZPI = {pc: i for i, pc in enumerate(_Z_PIECES)}
     
     def __init__(self, ranks=8, files=8):
         if ranks != 8 or files != 8:
@@ -65,12 +79,25 @@ class Board:
         
         self._is_white_to_move: bool = True
         self._halfmove_clock: int = 0 # for fifty-move rule
+        
+        self._z_piece = [[_rand64() for _ in range(self._grid_size)] for _ in range(len(self._Z_PIECES))]
+        self._z_castle = [_rand64() for _ in range(16)]  # index by castling_rights bitmask (0..15)
+        self._z_ep_file = [_rand64() for _ in range(8)]
+        self._z_side = _rand64()
 
-        self._init_board()
+        self._zkey: int = 0
+
+        # repetition tracking
+        self._rep_counts: dict[int, int] = {}
+        self._rep_stack: list[int] = []  # keys after each ply (or include initial)
+
+        self.init_board()
         
-    def _init_board(self) -> None:
-        self.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-        
+    def init_board(self, fen: str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") -> None:
+        self.set_fen(fen)
+        self._zkey = self._recompute_zobrist()
+        self._rep_counts = {self._zkey: 1}
+        self._rep_stack = [self._zkey]
         
     def make_move(self, move: Move) -> bool:
         src = move.src_square
@@ -231,7 +258,6 @@ class Board:
 
     def _gen_ray_into(self, moves: list[Move], src: int, df: int, dr: int) -> None:
         board: Sequence[int] = self._board
-        piece: int           = self._board[src]
         white: bool          = p.is_white(board[src])
         f, r                 = self.idx_to_f_r(src)
         files = self._files
@@ -463,7 +489,18 @@ class Board:
             prev_is_white_to_move=self._is_white_to_move,
             prev_white_king_sq=self._white_king_sq,
             prev_black_king_sq=self._black_king_sq,
+            prev_zkey=self._zkey,
         )
+
+        # --- Zobrist: remove old EP / old castling / old side ---
+        old_epf = self._ep_file_for_hash()
+        if old_epf is not None:
+            self._zkey ^= self._z_ep_file[old_epf]
+
+        self._zkey ^= self._z_castle[self._castling_rights & 0xF]
+
+        # side to move toggles every ply
+        self._zkey ^= self._z_side
 
         # reset en passant by default
         self._en_passant_target = None
@@ -474,6 +511,9 @@ class Board:
             self._halfmove_clock = 0
         else:
             self._halfmove_clock += 1
+ 
+        # --- Zobrist: remove moved piece from src ---           
+        self._z_xor_piece(moved_piece, src)
 
         # --- special moves ---
         if move.check_flag(MoveFlag.EN_PASSANT):
@@ -482,10 +522,15 @@ class Board:
                 cap_sq = dst - self._files
             else:
                 cap_sq = dst + self._files
+            cap_piece = int(self._board[cap_sq])
+            self._z_xor_piece(cap_piece, cap_sq)
             undo.captured_square = cap_sq
-            undo.captured_piece = int(self._board[cap_sq])
+            undo.captured_piece = cap_piece
             self._board[cap_sq] = p.NONE
-
+        else:
+            if captured_piece != p.NONE:
+                self._z_xor_piece(captured_piece, dst) 
+            
         if move.check_flag(MoveFlag.CASTLE):
             f_src, r_src = self.idx_to_f_r(src)
             f_dst, _ = self.idx_to_f_r(dst)
@@ -499,6 +544,9 @@ class Board:
             undo.rook_src, undo.rook_dst = rook_src, rook_dst
             self._board[rook_dst] = self._board[rook_src]
             self._board[rook_src] = p.NONE
+            rook_piece = p.WHITE_ROOK if p.is_white(moved_piece) else p.BLACK_ROOK
+            self._z_xor_piece(rook_piece, rook_src)
+            self._z_xor_piece(rook_piece, rook_dst)
 
         # update castling rights due to king/rook moves or rook capture
         t = p.piece_type(moved_piece)
@@ -553,16 +601,39 @@ class Board:
             }.get(move.promotion)
             if promo_t is None:
                 raise AssertionError("Promotion flag set but invalid promotion piece")
-            self._board[dst] = p.make_piece(promo_t, color)
+            promo_piece = p.make_piece(promo_t, color)
+            self._board[dst] = promo_piece
+            self._z_xor_piece(promo_piece, dst)
+        else:
+            self._z_xor_piece(moved_piece, dst)
 
-        # side to move flips
+        # flip side FIRST so EP hashing uses the correct side-to-move
         self._is_white_to_move = not self._is_white_to_move
+
+        # --- Zobrist: add new castling / new EP (must use new side) ---
+        self._zkey ^= self._z_castle[self._castling_rights & 0xF]
+        new_epf = self._ep_file_for_hash()  # now uses the flipped side
+        if new_epf is not None:
+            self._zkey ^= self._z_ep_file[new_epf]
+
+        # record position repetition (now the key matches the real position)
+        self._rep_stack.append(self._zkey)
+        self._rep_counts[self._zkey] = self._rep_counts.get(self._zkey, 0) + 1
+
         return undo
 
 
     def _undo_move(self, undo: Undo) -> None:
         move = undo.move
         src, dst = move.src_square, move.dst_square
+
+        # repetition bookkeeping: we are leaving current position
+        cur = self._rep_stack.pop()
+        cnt = self._rep_counts[cur] - 1
+        if cnt == 0:
+            del self._rep_counts[cur]
+        else:
+            self._rep_counts[cur] = cnt
 
         # restore turn first (so helpers that depend on side can be sane)
         self._is_white_to_move = undo.prev_is_white_to_move
@@ -592,6 +663,8 @@ class Board:
         self._white_king_sq = undo.prev_white_king_sq
         self._black_king_sq = undo.prev_black_king_sq
         
+        # recompute Zobrist key
+        self._zkey = undo.prev_zkey
 
     def get_all_legal_moves(self) -> list[Move]:
         board = self._board
@@ -619,9 +692,19 @@ class Board:
         moves = self.get_all_legal_moves()
         if moves:
             return False, "playing"
+       
         side = self._is_white_to_move
         if self.in_check(side):
             return True, "checkmate"
+        
+        if self._halfmove_clock >= 100:
+            return True, "fifty-move rule"
+       
+        if self.is_threefold_repetition():
+            return True, "threefold repetition"
+        
+        # TODO: insufficient material check
+        
         return True, "stalemate"
 
 
@@ -738,6 +821,69 @@ class Board:
         full = str(getattr(self, "_fullmove_number", 1))
         return f"{'/'.join(rows)} {active} {castling} {ep} {half} {full}"
 
-
     def _reset_board(self) -> None:
         self._board[:] = b"\x00" * self._grid_size
+
+    def _ep_file_for_hash(self) -> int | None:
+        """
+        Return ep file (0..7) *only if* an en-passant capture is legal in principle,
+        else None. This matches FIDE repetition rules and common engine practice.
+        """
+        ep = self._en_passant_target
+        if ep is None:
+            return None
+
+        f_ep, r_ep = self.idx_to_f_r(ep)
+
+        # Side to move must have a pawn that can capture onto ep square.
+        if self._is_white_to_move:
+            # white captures upward (from rank-1 to rank)
+            r_from = r_ep - 1
+            if r_from < 0:
+                return None
+            for df in (-1, 1):
+                f_from = f_ep + df
+                if 0 <= f_from < 8:
+                    src = self.get_idx(f_from, r_from)
+                    if self._board[src] == p.WHITE_PAWN:
+                        return f_ep
+        else:
+            # black captures downward (from rank+1 to rank)
+            r_from = r_ep + 1
+            if r_from > 7:
+                return None
+            for df in (-1, 1):
+                f_from = f_ep + df
+                if 0 <= f_from < 8:
+                    src = self.get_idx(f_from, r_from)
+                    if self._board[src] == p.BLACK_PAWN:
+                        return f_ep
+
+        return None
+
+    def _recompute_zobrist(self) -> int:
+        z = 0
+        board = self._board
+        z_piece = self._z_piece
+        zpi = self._ZPI
+
+        for sq in range(self._grid_size):
+            pc = int(board[sq])
+            if pc != p.NONE:
+                z ^= z_piece[zpi[pc]][sq]
+
+        z ^= self._z_castle[self._castling_rights & 0xF]
+
+        epf = self._ep_file_for_hash()
+        if epf is not None:
+            z ^= self._z_ep_file[epf]
+
+        if self._is_white_to_move:
+            z ^= self._z_side  # convention: side key means "white to move"
+        return z
+
+    def _z_xor_piece(self, piece: int, sq: int) -> None:
+        self._zkey ^= self._z_piece[self._ZPI[piece]][sq]
+
+    def is_threefold_repetition(self) -> bool:
+        return self._rep_counts.get(self._zkey, 0) >= 3
