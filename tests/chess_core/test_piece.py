@@ -30,7 +30,7 @@ def test_colour_helpers(p):
 def test_masks_sanity(p):
     wp = p.make_piece(Piece.PAWN, Piece.WHITE)
     assert (wp & Piece.TYPE_MASK) == Piece.PAWN
-    assert (wp & Piece.COLOUR_MASK) == Piece.WHITE
+    assert (wp & Piece.COLOR_MASK) == Piece.WHITE
 
 @pytest.mark.parametrize(
     "kind,is_orth,is_diag,is_slide",
