@@ -39,9 +39,6 @@ class Board:
     BLACK_CASTLE_KINGSIDE: int  = 1<<2 
     BLACK_CASTLE_QUEENSIDE: int = 1<<3
     
-    EN_PASSANT_CHECK_WHITE: int = 0
-    EN_PASSANT_CHECK_BLACK: int = 1
-    
     def __init__(self, ranks=8, files=8):
         if ranks != 8 or files != 8:
             raise ValueError("This engine currently supports only 8x8 chess.")
@@ -119,23 +116,6 @@ class Board:
 
     def get_idx(self, f: int, r: int) -> int:
         return f + (r * self._files)
-
-    # Returns 0 on empty, -1 on enemy piece and 1 on own piece
-    def _check_enemy_piece(self, dst: int) -> int:
-        piece_at_dst: int = self._board[dst]
-        if piece_at_dst == p.NONE:
-            return self.NO_PIECE
-
-        # White to move
-        if self._is_white_to_move: 
-            if p.is_white(piece_at_dst):
-                return self.OWN_PIECE
-            return self.ENEMY_PIECE
-        
-        # Black to move
-        if p.is_white(piece_at_dst):
-            return self.ENEMY_PIECE
-        return self.OWN_PIECE
 
     def _gen_pawn_moves(self, src: int) -> list[Move]:
         moves: list[Move] = []
