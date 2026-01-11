@@ -21,4 +21,27 @@ def perft(board: Board, depth: int) -> int:
 ])
 def test_perft_startpos(depth, expected):
     b = Board()
+    b.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
+    assert perft(b, depth) == expected
+
+@pytest.mark.parametrize("depth,expected", [
+    (1, 48),
+    (2, 2039),
+    (3, 97862),
+    (4, 4085603),
+])
+def test_perft_pos2(depth, expected):
+    b = Board()
+    b.set_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - ")
+    assert perft(b, depth) == expected
+
+@pytest.mark.parametrize("depth,expected", [
+    (1, 44),
+    (2, 1486),
+    (3, 62379),
+    (4, 2103487),
+])
+def test_perft_pos5(depth, expected):
+    b = Board()
+    b.set_fen("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8  ")
     assert perft(b, depth) == expected
