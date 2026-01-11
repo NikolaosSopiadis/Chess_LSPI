@@ -58,7 +58,7 @@ class BoardWindow:
         self._promotion_rects: list[pg.Rect] = [] # clickable rects per option
         self._promotion_idx:                 int = -1
 
-        self._selected:          tuple[int, int] = (-1,-1) # (-1, -1) if none else (file, rank)
+        self._selected_idx:                  int = -1
         self._picked_up_piece:               int = -1 # -1 if none else idx of picked up piece
         self._mouse_clicked:                bool = False
         self._mouse_clicked_pos: tuple[int, int] = (-1, -1) # (-1, -1) if none else (file, rank)
@@ -251,11 +251,11 @@ class BoardWindow:
         pg.draw.rect(self._overlay_surface, color, square)
 
     def _draw_selected(self) -> None:
-        f, r = self._selected
-        if f == -1 or r == -1:
+        if self._selected_idx == -1:
             return
 
         # Highlight the selected square
+        f, r = self._idx_to_f_r(self._selected_idx)
         selected_color: tuple[int, int, int, int] = (200, 100, 0, 128)
         self._draw_overlay_square(f, r, selected_color)
         
@@ -283,8 +283,9 @@ class BoardWindow:
         if self._mouse_clicked == False or self._picked_up_piece == -1:
             return
         
-        x, y = self._mouse_pos
-        square: pg.Rect = pg.Rect(x - self._square_size/2, y - self._square_size/2, self._square_size, self._square_size)
+        lx, ly = self._to_local(self._mouse_pos)
+        square = pg.Rect(lx - self._square_size/2, ly - self._square_size/2,
+                        self._square_size, self._square_size)
         piece:      int = self._ctrl.get_pieces_on_board()[self._picked_up_piece]
 
         sprite: pg.Surface | None = self._get_sprite(piece)
@@ -323,30 +324,29 @@ class BoardWindow:
         self._mouse_pos = mouse_pos
         idx: int              = self._get_idx_from_mouse_pos(mouse_pos)
         self._mouse_down_pos  = self._file_rank_from_mouse_pos(mouse_pos)
-        self._drag_origin_idx = idx
-        self._picked_up_piece = self._drag_origin_idx
+        
+        # only pick up friendly piece
+        self._picked_up_piece = idx if (idx != -1 and self._is_friendly(idx)) else -1
 
-        if self._selected[0] != -1 and self._selected[1] != -1 and not self._is_friendly(idx):
-            # If a piece is selected, make move
-            selected_idx: int = self._get_idx(self._selected[0], self._selected[1])
-            self._make_move(selected_idx, dst=idx)
-            # self._ctrl.move_piece(selected_idx, idx)
-            self._selected = -1, -1
+        if self._selected_idx != -1 and idx != -1 and not self._is_friendly(idx):
+            # If a piece is selected, attempt to make move from selected to clicked square
+            self._make_move(self._selected_idx, dst=idx)
+            self._selected_idx = -1
+            self._legal_dests.clear()
 
         elif idx != -1 and self._is_friendly(idx):
             # If the clicked piece is friendly, select it
-            selected_idx: int = self._get_idx(self._selected[0], self._selected[1])
-            if selected_idx != idx:
-                self._selected   = self._idx_to_f_r(idx)
-                self._legal_dests = set(self._ctrl.get_move_dests(idx))
+            if self._selected_idx != idx:
+                self._selected_idx = idx
+                self._legal_dests  = set(self._ctrl.get_move_dests(idx))
                 self._clear_selection_on_mouse_up = False
             else:
                 # If clicked on an already selected piece, remove the selection on mouse up
                 self._clear_selection_on_mouse_up = True
         else:
             # clear selection
+            self._selected_idx = -1
             self._legal_dests.clear()
-            self._selected = -1, -1
         
         self._pieces_dirty  = True
         self._overlay_dirty = True
@@ -371,16 +371,24 @@ class BoardWindow:
         if dst == -1:
             return
         
+        if self._picked_up_piece == -1:
+            return
+        
         if self._ctrl.get_pieces_on_board()[self._picked_up_piece] == p.NONE:
             return
 
         if self._mouse_down_pos == self._file_rank_from_mouse_pos(mouse_pos):
             if self._clear_selection_on_mouse_up:
-                self._selected = -1, -1
+                # self._selected = -1, -1
+                self._selected_idx = -1
+                self._legal_dests.clear()
+                
         else:
             self._make_move(self._picked_up_piece, dst)
             # self._ctrl.move_piece(self._picked_up_piece, dst)
-            self._selected = -1, -1
+            # self._selected = -1, -1
+            self._selected_idx = -1
+            self._legal_dests.clear()
 
         self._picked_up_piece = -1
         self._pieces_dirty    = True
@@ -401,51 +409,6 @@ class BoardWindow:
         self._promotion_dirty  = True
         self._needs_redraw     = True
     
-    def _rebuild_promotion_ui_mine(self) -> None:
-        f_prom, r_prom = self._idx_to_f_r(self._promotion_idx)
-        x0:     int = f_prom
-        y0:     int = r_prom
-        height: int = 4 * self._square_size
-        width:  int = self._square_size
-        white: bool = self._ctrl.is_white_to_move()
-
-        promotion_rect: pg.Rect = pg.Rect(0 ,0, width, height)
-
-        # Desaturate the whole board
-        self._promotion_surface.fill((0, 0, 0, 64))
-
-        promotion_bg: tuple[int, int, int, int] = ((200, 200, 200, 255))
-        pg.draw.rect(self._promotion_surface, promotion_bg, promotion_rect)
-
-        square: pg.Rect = pg.Rect(x0, y0, self._square_size, self._square_size)
-        piece:      int = p.WHITE_QUEEN if self._ctrl.is_white_to_move() else p.BLACK_QUEEN
-        self._draw_piece(piece, square)
-        
-        square = pg.Rect(x0, y0 + self._square_size, self._square_size, self._square_size)
-        piece  = p.WHITE_KNIGHT if white else p.BLACK_KNIGHT
-        self._draw_piece(piece, square)
-        
-        square = pg.Rect(x0, y0 + 2 * self._square_size, self._square_size, self._square_size)
-        piece  = p.WHITE_ROOK if white else p.BLACK_ROOK
-        self._draw_piece(piece, square)
-        
-        square = pg.Rect(x0, y0 + 3 * self._square_size, self._square_size, self._square_size)
-        piece  = p.WHITE_BISHOP if white else p.BLACK_BISHOP
-        self._draw_piece(piece, square)
-
-        self._promotion_dirty = False
-
-        # self._promotion_surface.blit(promotion_rect, (x0, y0))
-
-    def _make_move_mine(self, src: int, dst: int) -> None:
-        promotion_rank = self._ranks - 1 if self._ctrl.is_white_to_move() else 0
-        f_dst, r_dst = self._idx_to_f_r(dst)
-
-        if r_dst == promotion_rank:
-            self._show_promotion_ui
-            # wait until user selects piece
-            # I need to update the events to handle promotion selection
-
     def _enter_promotion_mode(self, src: int, dst: int) -> None:
         # Ask controller for legal promotion candidates to that dst
         promos: list[Move] = [m for m in self._ctrl.get_moves_to(src, dst)
@@ -545,9 +508,10 @@ class BoardWindow:
         if not self._promotion_active:
             return
         mx, my = mouse_pos
+        lx, ly = self._to_local(mouse_pos)
 
         # If clicked outside => (option A) cancel mode; (option B) do nothing
-        if not any(rect.collidepoint(mx, my) for rect in self._promotion_rects):
+        if not any(rect.collidepoint(lx, ly) for rect in self._promotion_rects):
             # pick one: cancel or keep modal
             # Here: cancel modal without move
             self._exit_promotion_mode()
@@ -556,8 +520,11 @@ class BoardWindow:
 
         # Find which button
         for rect, move in zip(self._promotion_rects, self._promotion_options):
-            if rect.collidepoint(mx, my):
+            if rect.collidepoint(lx, ly):
                 self._ctrl.make_move(move)
                 self._exit_promotion_mode()
                 self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
                 break
+
+    def _to_local(self, pos: tuple[float, float]) -> tuple[float, float]:
+        return (pos[0] - self._board_rect.left, pos[1] - self._board_rect.top)
