@@ -6,6 +6,7 @@ from chess_core.piece import Piece as p
 from chess_core.move import Move, Promotion, MoveFlag
 
 # TODO:
+#       - Zobrist hashing for position repetition detection
 #       - Add checkmate check and draw check (
 #           - same position 3 times
 #           - 50 move rule
@@ -22,6 +23,8 @@ class Undo:
     prev_en_passant_target: int | None
     prev_halfmove_clock: int
     prev_is_white_to_move: bool
+    prev_white_king_sq: int
+    prev_black_king_sq: int
     rook_src: int = -1                # for castling
     rook_dst: int = -1
 
@@ -46,6 +49,9 @@ class Board:
         self._ranks:     int = ranks
         self._files:     int = files
         self._grid_size: int = ranks * files
+        self._white_king_sq: int = -1
+        self._black_king_sq: int = -1
+
 
         self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
         
@@ -84,6 +90,9 @@ class Board:
         self._board[61] = p.BLACK_BISHOP 
         self._board[62] = p.BLACK_KNIGHT
         self._board[63] = p.BLACK_ROOK
+        
+        self._white_king_sq = 4
+        self._black_king_sq = 60
         
     def make_move(self, move: Move) -> bool:
         src = move.src_square
@@ -334,7 +343,7 @@ class Board:
             return []
 
         side = self._is_white_to_move  # mover color BEFORE move
-        king_sq0 = self._find_king(side)
+        king_sq0 = self._white_king_sq if side else self._black_king_sq
         if king_sq0 == -1:
             return []
 
@@ -355,7 +364,7 @@ class Board:
                     continue
 
             undo = self._do_move(m)
-            king_sq = self._find_king(side)  # mover’s king square after move
+            king_sq = self._white_king_sq if side else self._black_king_sq  # mover’s king square after move
             illegal = (king_sq == -1) or self.is_square_attacked(king_sq, by_white=not side)
             self._undo_move(undo)
 
@@ -459,9 +468,8 @@ class Board:
         return False
     
     def _find_king(self, white: bool) -> int:
-        king_piece: int = p.WHITE_KING if white else p.BLACK_KING
-        idxs = np.where(self._board == king_piece)[0]
-        return int(idxs[0]) if len(idxs) > 0 else -1
+        return self._white_king_sq if white else self._black_king_sq
+
 
     def _do_move(self, move: Move) -> Undo:
         src, dst = move.src_square, move.dst_square
@@ -478,6 +486,8 @@ class Board:
             prev_en_passant_target=self._en_passant_target,
             prev_halfmove_clock=self._halfmove_clock,
             prev_is_white_to_move=self._is_white_to_move,
+            prev_white_king_sq=self._white_king_sq,
+            prev_black_king_sq=self._black_king_sq,
         )
 
         # reset en passant by default
@@ -549,6 +559,13 @@ class Board:
         # apply main piece move
         self._board[dst] = self._board[src]
         self._board[src] = p.NONE
+ 
+        # update king square       
+        if p.piece_type(moved_piece) == p.KING:
+            if p.is_white(moved_piece):
+                self._white_king_sq = dst
+            else:
+                self._black_king_sq = dst
 
         # promotion replaces piece on dst
         if move.check_flag(MoveFlag.PROMOTION):
@@ -595,6 +612,11 @@ class Board:
         if move.check_flag(MoveFlag.CASTLE):
             self._board[undo.rook_src] = self._board[undo.rook_dst]
             self._board[undo.rook_dst] = p.NONE
+            
+        # restore king square
+        self._white_king_sq = undo.prev_white_king_sq
+        self._black_king_sq = undo.prev_black_king_sq
+        
 
     def get_all_legal_moves(self) -> list[Move]:
         legal: list[Move] = []
@@ -609,7 +631,7 @@ class Board:
         return legal
 
     def in_check(self, white: bool) -> bool:
-        k = self._find_king(white)
+        k = self._white_king_sq if white else self._black_king_sq
         return k != -1 and self.is_square_attacked(k, by_white=not white)
 
     def game_end_state(self) -> tuple[bool, str]:
