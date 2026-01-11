@@ -13,6 +13,9 @@ from chess_core.move import Move, Promotion, MoveFlag
 #           - insufficient material
 #           - stalemate)
 
+# Perforamance TODO:
+#      - Stop calling is_square_attacked() twice for castling legality check
+
 @dataclass(slots=True)
 class Undo:
     move: Move
@@ -65,31 +68,8 @@ class Board:
         self._init_board()
         
     def _init_board(self) -> None:
-        self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
-        self._board[0] = p.WHITE_ROOK
-        self._board[1] = p.WHITE_KNIGHT
-        self._board[2] = p.WHITE_BISHOP
-        self._board[3] = p.WHITE_QUEEN
-        self._board[4] = p.WHITE_KING
-        self._board[5] = p.WHITE_BISHOP 
-        self._board[6] = p.WHITE_KNIGHT
-        self._board[7] = p.WHITE_ROOK
-        for i in range(8, 16):
-            self._board[i] = p.WHITE_PAWN
-
-        for i in range(48, 56):
-            self._board[i] = p.BLACK_PAWN
-        self._board[56] = p.BLACK_ROOK
-        self._board[57] = p.BLACK_KNIGHT
-        self._board[58] = p.BLACK_BISHOP
-        self._board[59] = p.BLACK_QUEEN
-        self._board[60] = p.BLACK_KING
-        self._board[61] = p.BLACK_BISHOP 
-        self._board[62] = p.BLACK_KNIGHT
-        self._board[63] = p.BLACK_ROOK
+        self.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
         
-        self._white_king_sq = 4
-        self._black_king_sq = 60
         
     def make_move(self, move: Move) -> bool:
         src = move.src_square
@@ -633,3 +613,117 @@ class Board:
         if self.in_check(side):
             return True, "checkmate"
         return True, "stalemate"
+
+
+    _FEN_TO_PIECE = {
+        "P": p.WHITE_PAWN,   "N": p.WHITE_KNIGHT, "B": p.WHITE_BISHOP,
+        "R": p.WHITE_ROOK,   "Q": p.WHITE_QUEEN,  "K": p.WHITE_KING,
+        "p": p.BLACK_PAWN,   "n": p.BLACK_KNIGHT, "b": p.BLACK_BISHOP,
+        "r": p.BLACK_ROOK,   "q": p.BLACK_QUEEN,  "k": p.BLACK_KING,
+    }
+
+    _PIECE_TO_FEN = {v: k for k, v in _FEN_TO_PIECE.items()}
+
+    def algebraic_to_idx(self, sq: str) -> int:
+        # "a1" -> 0, "h8" -> 63
+        f = ord(sq[0]) - ord("a")
+        r = int(sq[1]) - 1
+        if not (0 <= f < 8 and 0 <= r < 8):
+            raise ValueError(f"Bad square: {sq}")
+        return self.get_idx(f, r)
+
+    def idx_to_algebraic(self, idx: int) -> str:
+        f, r = self.idx_to_f_r(idx)
+        return f"{chr(ord('a') + f)}{r + 1}"
+
+    def set_fen(self, fen: str) -> None:
+        parts = fen.strip().split()
+        if len(parts) < 4:
+            raise ValueError(f"Bad FEN: {fen}")
+
+        placement, active, castling, ep = parts[:4]
+        halfmove = int(parts[4]) if len(parts) >= 5 else 0
+        fullmove = int(parts[5]) if len(parts) >= 6 else 1  # optional (but nice to keep)
+
+        self._board = np.zeros(self._grid_size, dtype=np.uint8)
+        self._white_king_sq = -1
+        self._black_king_sq = -1
+
+        rows = placement.split("/")
+        if len(rows) != 8:
+            raise ValueError(f"Bad FEN placement rows: {placement}")
+
+        for fen_r, row in enumerate(rows):          # fen_r=0 is rank 8
+            r = 7 - fen_r                           # engine rank 7 is rank 8
+            f = 0
+            for ch in row:
+                if ch.isdigit():
+                    f += int(ch)
+                    continue
+                if ch not in self._FEN_TO_PIECE:
+                    raise ValueError(f"Bad FEN char: {ch}")
+                if f >= 8:
+                    raise ValueError("Bad FEN row overflow")
+                idx = self.get_idx(f, r)
+                piece = self._FEN_TO_PIECE[ch]
+                self._board[idx] = piece
+                if piece == p.WHITE_KING:
+                    self._white_king_sq = idx
+                elif piece == p.BLACK_KING:
+                    self._black_king_sq = idx
+                f += 1
+            if f != 8:
+                raise ValueError(f"Bad FEN row width: {row}")
+
+        self._is_white_to_move = (active == "w")
+
+        rights = 0
+        if castling != "-":
+            if "K" in castling: rights |= self.WHITE_CASTLE_KINGSIDE
+            if "Q" in castling: rights |= self.WHITE_CASTLE_QUEENSIDE
+            if "k" in castling: rights |= self.BLACK_CASTLE_KINGSIDE
+            if "q" in castling: rights |= self.BLACK_CASTLE_QUEENSIDE
+        self._castling_rights = rights
+
+        # Per FEN, ep can be set even if no capture is possible. :contentReference[oaicite:1]{index=1}
+        self._en_passant_target = None if ep == "-" else self.algebraic_to_idx(ep)
+
+        self._halfmove_clock = halfmove
+        self._fullmove_number = fullmove  # add this attribute in __init__ if you want
+
+        if self._white_king_sq == -1 or self._black_king_sq == -1:
+            raise ValueError("FEN must contain both kings")
+
+    def to_fen(self) -> str:
+        rows = []
+        for r in range(7, -1, -1):
+            empties = 0
+            out = []
+            for f in range(8):
+                idx = self.get_idx(f, r)
+                piece = int(self._board[idx])
+                if piece == p.NONE:
+                    empties += 1
+                else:
+                    if empties:
+                        out.append(str(empties))
+                        empties = 0
+                    out.append(self._PIECE_TO_FEN.get(piece, "?"))
+            if empties:
+                out.append(str(empties))
+            rows.append("".join(out))
+
+        active = "w" if self._is_white_to_move else "b"
+
+        c = []
+        if self._castling_rights & self.WHITE_CASTLE_KINGSIDE:  c.append("K")
+        if self._castling_rights & self.WHITE_CASTLE_QUEENSIDE: c.append("Q")
+        if self._castling_rights & self.BLACK_CASTLE_KINGSIDE:  c.append("k")
+        if self._castling_rights & self.BLACK_CASTLE_QUEENSIDE: c.append("q")
+        castling = "".join(c) if c else "-"
+
+        ep = "-" if self._en_passant_target is None else self.idx_to_algebraic(self._en_passant_target)
+
+        half = str(self._halfmove_clock)
+        full = str(getattr(self, "_fullmove_number", 1))
+        return f"{'/'.join(rows)} {active} {castling} {ep} {half} {full}"
