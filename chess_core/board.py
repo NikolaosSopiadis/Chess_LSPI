@@ -232,7 +232,7 @@ class Board:
             obstructed = False
             for f in range(f_src + 1, self._files - 1):
                 castle_path = self.get_idx(f, r_src)
-                if self._check_enemy_piece(castle_path) != self.NO_PIECE:
+                if self._board[castle_path] != p.NONE:
                     obstructed = True
                     break
             # kingside rook must exist
