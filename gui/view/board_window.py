@@ -350,17 +350,22 @@ class BoardWindow:
         self._overlay_dirty = True
         self._needs_redraw  = True
             
-    def on_mouse_move(self, mouse_pos: tuple[float, float]) -> None:
+    def on_mouse_move(self, mouse_pos):
         self._mouse_pos = mouse_pos
-        new_hover: int  = self._get_idx_from_mouse_pos(mouse_pos)
+        new_hover = self._get_idx_from_mouse_pos(mouse_pos)
 
+        changed = False
         if new_hover != self._hover_idx:
-            self._hover_idx     = new_hover
-            self._overlay_dirty = True
-            self._needs_redraw  = True
+            self._hover_idx = new_hover
+            changed = True
 
-        self._overlay_dirty   = True
-        self._needs_redraw    = True
+        if self._mouse_clicked and self._picked_up_piece != -1:
+            changed = True
+
+        if changed:
+            self._overlay_dirty = True
+            self._needs_redraw = True
+
 
     def on_mouse_up(self, mouse_pos: tuple[float, float]) -> None:
         self._mouse_clicked = False
