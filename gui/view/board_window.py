@@ -1,19 +1,16 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from enum import Enum
 import pygame as pg
 import pygame_gui as pgg
-import numpy as np
-import numpy.typing as npt
 
 from chess_core.piece import Piece as p
 from chess_core.move import Move, Promotion
 
-# TODO: Chagne self._selected to use index instead of f,r
-
 # type-only, no runtime imports (to avoid circular dependency)
 if TYPE_CHECKING:
     from gui.controller.controller import Controller  
+    import numpy as np
+    import numpy.typing as npt
 
 class BoardWindow:
     def __init__(self, controller: Controller, x0: int, y0: int,
@@ -300,16 +297,18 @@ class BoardWindow:
 
         self._square_size = new_sq
         # mark layers dirty; sprites will be (re)cached lazily
-        self._board_dirty   = True
-        self._pieces_dirty  = True
-        self._overlay_dirty = True
-        self._needs_redraw  = True
+        self._board_dirty     = True
+        self._pieces_dirty    = True
+        self._overlay_dirty   = True
+        self._promotion_dirty = True
+        self._needs_redraw    = True
     
-        self._board_rect:          pg.Rect = pg.Rect(self._x0, self._y0, new_width, new_height)
-        self._board_surface:    pg.Surface = pg.Surface((new_width, new_height)).convert()
-        self._pieces_surface:   pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
-        self._overlay_surface:  pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
-        self._composed_surface: pg.Surface = pg.Surface((new_width, new_height)).convert()
+        self._board_rect:          pg.Rect  = pg.Rect(self._x0, self._y0, new_width, new_height)
+        self._board_surface:    pg.Surface  = pg.Surface((new_width, new_height)).convert()
+        self._pieces_surface:   pg.Surface  = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._overlay_surface:  pg.Surface  = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._composed_surface: pg.Surface  = pg.Surface((new_width, new_height)).convert()
+        self._promotion_surface: pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
         self._board.set_dimensions((new_width, new_height))
 
     def on_mouse_down(self, mouse_pos: tuple[float, float]) -> None:
