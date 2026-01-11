@@ -688,25 +688,32 @@ class Board:
         return k != -1 and self.is_square_attacked(k, by_white=not white)
 
     def game_end_state(self) -> tuple[bool, str]:
-        """(done, reason) where reason in {'checkmate','stalemate','playing'} for now."""
+        """
+        (done, reason) where reason in {
+        'checkmate','stalemate','threefold repetition','fifty-move rule',
+        'insufficient material','playing'
+        }.
+        """
         moves = self.get_all_legal_moves()
-        if moves:
-            return False, "playing"
-       
-        side = self._is_white_to_move
-        if self.in_check(side):
-            return True, "checkmate"
-        
+
+        # No legal moves -> mate or stalemate (these must override everything)
+        if not moves:
+            side = self._is_white_to_move
+            if self.in_check(side):
+                return True, "checkmate"
+            return True, "stalemate"
+
+        # Draws that can happen while moves still exist
+        if self.is_insufficient_material():
+            return True, "insufficient material"
+
         if self._halfmove_clock >= 100:
             return True, "fifty-move rule"
-       
+
         if self.is_threefold_repetition():
             return True, "threefold repetition"
-        
-        # TODO: insufficient material check
-        
-        return True, "stalemate"
 
+        return False, "playing"
 
     _FEN_TO_PIECE = {
         "P": p.WHITE_PAWN,   "N": p.WHITE_KNIGHT, "B": p.WHITE_BISHOP,
@@ -887,3 +894,62 @@ class Board:
 
     def is_threefold_repetition(self) -> bool:
         return self._rep_counts.get(self._zkey, 0) >= 3
+
+    def is_insufficient_material(self) -> bool:
+        """
+        Returns True if neither side can possibly checkmate with the material on the board.
+        Common minimal rules:
+        - K vs K
+        - K+N vs K
+        - K+B vs K
+        - K+N vs K+N
+        - K+NN vs K (and symmetric)
+        - K+B vs K+B with bishops on the same color complex
+        - Any position with pawns/rooks/queens is NOT insufficient
+        """
+        knights = 0
+        bishops = 0
+        bishop_colors: list[int] = []
+
+        for sq in range(self._grid_size):
+            pc = int(self._board[sq])
+            if pc == p.NONE:
+                continue
+
+            t = p.piece_type(pc)
+            if t == p.KING:
+                continue
+
+            if t in (p.PAWN, p.ROOK, p.QUEEN):
+                return False
+
+            if t == p.KNIGHT:
+                knights += 1
+            elif t == p.BISHOP:
+                bishops += 1
+                f, r = self.idx_to_f_r(sq)
+                bishop_colors.append((f + r) & 1)
+            else:
+                # should not happen in normal chess, but be conservative
+                return False
+
+        minors = knights + bishops
+
+        # Bare kings
+        if minors == 0:
+            return True
+
+        # Single minor piece total: K+N vs K or K+B vs K
+        if minors == 1:
+            return True
+
+        # Knights only: up to 2 total knights cannot mate
+        if bishops == 0 and knights <= 2:
+            return True
+
+        # Bishops only: if all bishops are on the same color complex (common cases: K+B vs K+B same color)
+        if knights == 0 and bishops >= 1:
+            if all(c == bishop_colors[0] for c in bishop_colors):
+                return True
+
+        return False
