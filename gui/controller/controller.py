@@ -1,5 +1,5 @@
-import numpy as np
-import numpy.typing as npt
+from __future__ import annotations
+from typing import TYPE_CHECKING
 import pygame as pg
 import pygame_gui as pgg
 
@@ -7,6 +7,12 @@ from gui.view.main_window import MainWindow
 from chess_core.piece import Piece as p     
 from chess_core.board import Board
 from chess_core.move import Move
+
+# type-only, no runtime imports
+if TYPE_CHECKING:
+    import numpy as np
+    import numpy.typing as npt
+    
 class Controller:
     
     STOPPED: int = 0
