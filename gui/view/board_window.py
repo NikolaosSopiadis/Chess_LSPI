@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 import pygame as pg
 import pygame_gui as pgg
 
@@ -9,8 +9,6 @@ from chess_core.move import Move, Promotion
 # type-only, no runtime imports (to avoid circular dependency)
 if TYPE_CHECKING:
     from gui.controller.controller import Controller  
-    import numpy as np
-    import numpy.typing as npt
 
 class BoardWindow:
     def __init__(self, controller: Controller, x0: int, y0: int,
@@ -163,7 +161,7 @@ class BoardWindow:
     def _rebuild_pieces_surface(self) -> None:
         # Clear layer
         self._pieces_surface.fill((0,0,0,0))
-        pieces: npt.NDArray[np.uint8] = self._ctrl.get_pieces_on_board()
+        pieces: Sequence[int] = self._ctrl.get_pieces_on_board()
         
         debug_text: bool = False
         if debug_text:

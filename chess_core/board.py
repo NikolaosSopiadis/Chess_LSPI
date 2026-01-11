@@ -1,5 +1,4 @@
-import numpy as np
-import numpy.typing as npt
+from typing import Sequence
 from dataclasses import dataclass
 
 from chess_core.piece import Piece as p
@@ -53,8 +52,7 @@ class Board:
         self._black_king_sq: int = -1
 
 
-        self._board: npt.NDArray[np.uint8] = np.zeros(self._grid_size, dtype=np.uint8)
-        
+        self._board: bytearray = bytearray(self._grid_size)        
         self._castling_rights: int = ( self.WHITE_CASTLE_KINGSIDE 
                                      | self .WHITE_CASTLE_QUEENSIDE
                                      | self.BLACK_CASTLE_KINGSIDE 
@@ -343,7 +341,7 @@ class Board:
 
         return legal
     
-    def get_board(self) -> npt.NDArray[np.uint8]:
+    def get_board(self) -> Sequence[int]:
         return self._board
 
     def _push_move(self, moves: list[Move], src: int, dst: int,
@@ -372,7 +370,7 @@ class Board:
     def is_square_attacked(self, square: int, by_white: bool) -> bool:
         """Return True if `square` is attacked by the given color."""
         f_src, r_src = self.idx_to_f_r(square)
-        board: npt.NDArray[np.uint8] = self._board
+        board: Sequence[int] = self._board
 
         # --- Pawn attacks ---
         pawn_dir: int = -1 if by_white else +1
@@ -645,7 +643,7 @@ class Board:
         halfmove = int(parts[4]) if len(parts) >= 5 else 0
         fullmove = int(parts[5]) if len(parts) >= 6 else 1  # optional (but nice to keep)
 
-        self._board = np.zeros(self._grid_size, dtype=np.uint8)
+        self._reset_board()
         self._white_king_sq = -1
         self._black_king_sq = -1
 
@@ -727,3 +725,7 @@ class Board:
         half = str(self._halfmove_clock)
         full = str(getattr(self, "_fullmove_number", 1))
         return f"{'/'.join(rows)} {active} {castling} {ep} {half} {full}"
+
+
+    def _reset_board(self) -> None:
+        self._board[:] = b"\x00" * self._grid_size
