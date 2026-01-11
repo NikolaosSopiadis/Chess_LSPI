@@ -40,7 +40,6 @@ class BoardWindow:
         self._square_size: int = self._height // max(self._files, self._ranks)
         
         self._hover_idx: int                  = -1       # board index under cursor, -1 if none
-        self._drag_origin_idx: int            = -1       # where drag started
         self._legal_dests: set[int]           = set()    # cached destinations for selected piece
         self._mouse_down_pos: tuple[int, int] = (-1, -1) # (-1, -1) if none else (file, rank)
 
@@ -61,7 +60,6 @@ class BoardWindow:
         self._selected_idx:                  int = -1
         self._picked_up_piece:               int = -1 # -1 if none else idx of picked up piece
         self._mouse_clicked:                bool = False
-        self._mouse_clicked_pos: tuple[int, int] = (-1, -1) # (-1, -1) if none else (file, rank)
         self._mouse_pos:     tuple[float, float] = (-1, -1) # (-1, -1) if none else (x, y)
         
         self._board_rect: pg.Rect = pg.Rect(x0, y0, width, height)
