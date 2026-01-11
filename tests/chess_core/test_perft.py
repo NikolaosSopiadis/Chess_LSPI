@@ -19,7 +19,7 @@ def perft(board: Board, depth: int) -> int:
     (4, 197281),
     (5, 4865609),
 ])
-def test_perft_startpos(depth, expected):
+def test_perft_pos1(depth, expected):
     b = Board()
     b.set_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
     assert perft(b, depth) == expected
