@@ -210,14 +210,22 @@ class Board:
         queenside_dst = self.get_idx(2, r_src)
         kingside_dst  = self.get_idx(self._files - 2, r_src)
         
+        start_king_sq = self.get_idx(4, 0 if white else 7)
+        if src != start_king_sq:
+            return moves  # no castling unless king is on e1/e8
+
+        rook_piece = p.WHITE_ROOK if white else p.BLACK_ROOK
+        
         if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE if white else self.BLACK_CASTLE_QUEENSIDE):
             obstructed = False
             for f in range(f_src - 1, 0, -1):
                 castle_path = self.get_idx(f, r_src)
-                if self._check_enemy_piece(castle_path) != self.NO_PIECE:
+                if self._board[castle_path] != p.NONE:
                     obstructed = True
                     break
-            if not obstructed:
+            # queenside rook must exist
+            qs_rook_sq = self.get_idx(0, r_src)
+            if self._board[qs_rook_sq] == rook_piece and not obstructed:
                 moves.append(Move.castle(src, queenside_dst))
 
         if self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE if white else self.BLACK_CASTLE_KINGSIDE):
@@ -227,7 +235,9 @@ class Board:
                 if self._check_enemy_piece(castle_path) != self.NO_PIECE:
                     obstructed = True
                     break
-            if not obstructed:
+            # kingside rook must exist
+            ks_rook_sq = self.get_idx(self._files - 1, r_src)
+            if self._board[ks_rook_sq] == rook_piece and not obstructed:
                 moves.append(Move.castle(src, kingside_dst))
         
         return moves
