@@ -14,6 +14,9 @@ from chess_core.move import Move, Promotion, MoveFlag
 
 # Perforamance TODO:
 #      - Stop calling is_square_attacked() twice for castling legality check
+#      - BIG: replace Move objects with a packed integer encoding for faster move generation and lookup
+#          - 6 bits src, 6 bits dst, 5 bits flags, 3 bits promotion
+#      - Reduce undo overhead by making undo a tuple
 
 @dataclass(slots=True)
 class Undo:
@@ -226,47 +229,45 @@ class Board:
         return moves
 
 
-    def _gen_ray(self, src: int, df: int, dr: int) -> list[Move]:
-        """Scan in one direction until blocked; return quiet/capture moves."""
-        moves: list[Move] = []
-        piece: int        = self._board[src]
-        white: bool       = p.is_white(piece)
-        f, r              = self.idx_to_f_r(src)
+    def _gen_ray_into(self, moves: list[Move], src: int, df: int, dr: int) -> None:
+        board: Sequence[int] = self._board
+        piece: int           = self._board[src]
+        white: bool          = p.is_white(board[src])
+        f, r                 = self.idx_to_f_r(src)
+        files = self._files
+        ranks = self._ranks
+        get_idx = self.get_idx
 
         while True:
-            f += df
-            r += dr
-            if not (0 <= f < self._files and 0 <= r < self._ranks):
-                break
-
-            dst: int    = self.get_idx(f, r)
-            target_piece: int = self._board[dst]
-            if target_piece == p.NONE:
+            f += df; r += dr
+            if not (0 <= f < files and 0 <= r < ranks):
+                return
+            dst = get_idx(f, r)
+            target = board[dst]
+            if target == p.NONE:
                 self._push_move(moves, src, dst)
                 continue
-            if self._is_enemy(target_piece, white):
+            if p.is_white(target) != white:
+                # hit something (enemy or own): stop the ray
                 self._push_move(moves, src, dst)
-            # hit something (enemy or own): stop the ray
-            break
-
-        return moves
+            return
 
     def _gen_diag_moves(self, src: int) -> list[Move]:
         # bishop-like
         moves: list[Move] = []
-        moves += self._gen_ray(src, +1, +1)
-        moves += self._gen_ray(src, +1, -1)
-        moves += self._gen_ray(src, -1, +1)
-        moves += self._gen_ray(src, -1, -1)
+        self._gen_ray_into(moves, src, +1, +1)
+        self._gen_ray_into(moves, src, +1, -1)
+        self._gen_ray_into(moves, src, -1, +1)
+        self._gen_ray_into(moves, src, -1, -1)
         return moves
 
     def _gen_ortho_moves(self, src: int) -> list[Move]:
         # rook-like
         moves: list[Move] = []
-        moves += self._gen_ray(src, +1,  0)
-        moves += self._gen_ray(src, -1,  0)
-        moves += self._gen_ray(src,  0, +1)
-        moves += self._gen_ray(src,  0, -1)
+        self._gen_ray_into(moves, src, +1,  0)
+        self._gen_ray_into(moves, src, -1,  0)
+        self._gen_ray_into(moves, src,  0, +1)
+        self._gen_ray_into(moves, src,  0, -1)
         return moves
 
     def _gen_bishop_moves(self, src: int) -> list[Move]:
@@ -369,16 +370,22 @@ class Board:
     
     def is_square_attacked(self, square: int, by_white: bool) -> bool:
         """Return True if `square` is attacked by the given color."""
-        f_src, r_src = self.idx_to_f_r(square)
-        board: Sequence[int] = self._board
+        board = self._board
+        files = self._files
+        ranks = self._ranks
+        get_idx = self.get_idx
+        idx_to_f_r = self.idx_to_f_r
+    
+        f_src, r_src = idx_to_f_r(square)
+        board: Sequence[int] = board
 
         # --- Pawn attacks ---
         pawn_dir: int = -1 if by_white else +1
         for df in (-1, 1):
             f1: int = f_src + df
             r1: int = r_src + pawn_dir
-            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
-                idx = self.get_idx(f1, r1)
+            if 0 <= f1 < files and 0 <= r1 < ranks:
+                idx = get_idx(f1, r1)
                 if board[idx] == (p.WHITE_PAWN if by_white else p.BLACK_PAWN):
                     return True
 
@@ -386,8 +393,8 @@ class Board:
         for df, dr in ((1,2),(2,1),(2,-1),(1,-2),(-1,-2),(-2,-1),(-2,1),(-1,2)):
             f1: int = f_src + df
             r1: int = r_src + dr
-            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
-                idx = self.get_idx(f1, r1)
+            if 0 <= f1 < files and 0 <= r1 < ranks:
+                idx = get_idx(f1, r1)
                 if board[idx] == (p.WHITE_KNIGHT if by_white else p.BLACK_KNIGHT):
                     return True
 
@@ -396,8 +403,8 @@ class Board:
         for df, dr in ((1,1),(1,-1),(-1,1),(-1,-1)):
             f1: int = f_src + df
             r1: int = r_src + dr
-            while 0 <= f1 < self._files and 0 <= r1 < self._ranks:
-                idx = self.get_idx(f1, r1)
+            while 0 <= f1 < files and 0 <= r1 < ranks:
+                idx = get_idx(f1, r1)
                 piece = board[idx]
                 if piece == p.NONE:
                     f1 += df; r1 += dr
@@ -412,8 +419,8 @@ class Board:
         for df, dr in ((1,0),(-1,0),(0,1),(0,-1)):
             f1: int = f_src + df
             r1: int = r_src + dr
-            while 0 <= f1 < self._files and 0 <= r1 < self._ranks:
-                idx = self.get_idx(f1, r1)
+            while 0 <= f1 < files and 0 <= r1 < ranks:
+                idx = get_idx(f1, r1)
                 piece = board[idx]
                 if piece == p.NONE:
                     f1 += df; r1 += dr
@@ -428,8 +435,8 @@ class Board:
         for df, dr in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)):
             f1: int = f_src + df
             r1: int = r_src + dr
-            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
-                idx = self.get_idx(f1, r1)
+            if 0 <= f1 < files and 0 <= r1 < ranks:
+                idx = get_idx(f1, r1)
                 if board[idx] == (p.WHITE_KING if by_white else p.BLACK_KING):
                     return True
 
@@ -587,15 +594,20 @@ class Board:
         
 
     def get_all_legal_moves(self) -> list[Move]:
+        board = self._board
+        get_legal_moves = self.get_legal_moves
+        grid_size = self._grid_size
+        
+        
         legal: list[Move] = []
         side = self._is_white_to_move
-        for src in range(self._grid_size):
-            piece = int(self._board[src])
+        for src in range(grid_size):
+            piece = int(board[src])
             if piece == p.NONE:
                 continue
             if p.is_white(piece) != side:
                 continue
-            legal.extend(self.get_legal_moves(src))
+            legal.extend(get_legal_moves(src))
         return legal
 
     def in_check(self, white: bool) -> bool:
