@@ -1,17 +1,29 @@
 import numpy as np
 import numpy.typing as npt
+from dataclasses import dataclass
 
 from chess_core.piece import Piece as p
 from chess_core.move import Move, Promotion, MoveFlag
 
 # TODO:
-#       - Create get_legal_moves that checks for pins and checks
 #       - Add checkmate check and draw check (
 #           - same position 3 times
 #           - 50 move rule
 #           - insufficient material
 #           - stalemate)
 
+@dataclass(slots=True)
+class Undo:
+    move: Move
+    moved_piece: int
+    captured_piece: int
+    captured_square: int              # usually dst; for en passant it's behind dst
+    prev_castling_rights: int
+    prev_en_passant_target: int | None
+    prev_halfmove_clock: int
+    prev_is_white_to_move: bool
+    rook_src: int = -1                # for castling
+    rook_dst: int = -1
 
 class Board:
 
@@ -28,6 +40,9 @@ class Board:
     EN_PASSANT_CHECK_BLACK: int = 1
     
     def __init__(self, ranks=8, files=8):
+        if ranks != 8 or files != 8:
+            raise ValueError("This engine currently supports only 8x8 chess.")
+        
         self._ranks:     int = ranks
         self._files:     int = files
         self._grid_size: int = ranks * files
@@ -42,6 +57,7 @@ class Board:
         self._en_passant_target: int | None = None
         
         self._is_white_to_move: bool = True
+        self._halfmove_clock: int = 0 # for fifty-move rule
 
         self._init_board()
         
@@ -69,164 +85,18 @@ class Board:
         self._board[62] = p.BLACK_KNIGHT
         self._board[63] = p.BLACK_ROOK
         
-    # TODO: cleanup make_move by better utilizing the flags in a match case block
     def make_move(self, move: Move) -> bool:
-        src: int = move.src_square
-        dst: int = move.dst_square
-
-        # Out of bounds
-        if src < 0 or src >= self._grid_size:
-            return False
-        
-        if dst < 0 or dst >= self._grid_size:
-            return False
-        
-        src_piece = self._board[src]
-        dst_piece = self._board[dst]
-        
-        # Ignore empty squares
-        if src_piece == p.NONE:
-            return False
-        
-        # Ignore moves from and to the same square
-        if src == dst:
+        src = move.src_square
+        if not (0 <= src < self._grid_size):
             return False
 
-        f_src, r_src = self.idx_to_f_r(src)
-        f_dst, r_dst = self.idx_to_f_r(dst)
-        src_idx: int = self.get_idx(f_src, r_src)
-
-        # Only make legal moves
-        legal_moves: list[Move] = self.get_legal_moves(src_idx)       
-        # Currently move has no flags so it only moves to empty squares will match
-        # if move not in legal_moves:
-        if all(m.dst_square != dst for m in legal_moves):
+        # IMPORTANT: require exact move match (flags included)
+        if move not in self.get_legal_moves(src):
             return False
 
-        # Reset en passant
-        # en_passant_prev: int | None = self._en_passant_target
-        self._en_passant_target = None
-
-        match p.piece_type(src_piece):
-            case p.PAWN:
-                # Update en passant on double pawn move
-                if move.check_flag(MoveFlag.DOUBLE_PAWN):
-                # if r_dst - r_src == 2 or r_dst - r_src == -2:
-                    self._en_passant_target = self.get_idx(f_dst, (r_src + r_dst)//2)
-                elif move.check_flag(MoveFlag.PROMOTION):
-                    promo_piece: int
-                    piece_color: int = p.piece_color(src_piece)
-                    match move.promotion:
-                        case Promotion.QUEEN:
-                            promo_piece = p.make_piece(p.QUEEN, piece_color)
-                        case Promotion.KNIGHT:
-                            promo_piece = p.make_piece(p.KNIGHT, piece_color)
-                        case Promotion.BISHOP:
-                            promo_piece = p.make_piece(p.BISHOP, piece_color)
-                        case Promotion.ROOK:
-                            promo_piece = p.make_piece(p.ROOK, piece_color)
-                        case _:
-                            raise AssertionError("Promotion flag set with no promotion piece selected")
-
-                    self._board[src] = promo_piece
-                elif move.check_flag(MoveFlag.EN_PASSANT):
-                # if en_passant_prev == dst:
-                    if self._is_white_to_move: 
-                        self._board[dst - self._files] = p.NONE 
-                    else:
-                        self._board[dst + self._files] = p.NONE 
-                    
-
-            case p.KING:
-                qs_dst = self.get_idx(2, r_src)             # c-file
-                ks_dst = self.get_idx(self._files-2, r_src) # g-file
-                
-                # Update castling rights
-                # Don't check for obstructions as they are already checked in get_legal_moves
-                if self._is_white_to_move:
-                    
-                    if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE) and dst == qs_dst:
-                        # Castle queenside
-                        # move rook a-file to d-file
-                        self._board[self.get_idx(3, r_src)] = p.WHITE_ROOK 
-                        self._board[self.get_idx(0, r_src)] = p.NONE
-                        
-                    elif self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE) == True and dst == ks_dst:
-                        # Castle kingside
-                        # move rook h-file to f-file
-                        self._board[self.get_idx(self._files-3, r_src)] = p.WHITE_ROOK
-                        self._board[self.get_idx(self._files-1, r_src)] = p.NONE
-
-                    self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
-                    self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
-                else:
-                    
-                    if self._has_castling_rights(self.BLACK_CASTLE_QUEENSIDE) and dst == qs_dst:
-                        # Castle queenside
-                        # move rook a-file to d-file
-                        self._board[self.get_idx(3, r_src)] = p.BLACK_ROOK 
-                        self._board[self.get_idx(0, r_src)] = p.NONE
-
-                    elif self._has_castling_rights(self.BLACK_CASTLE_KINGSIDE) and dst == ks_dst:
-                        # Castle kingside
-                        # move rook h-file to f-file
-                        self._board[self.get_idx(self._files-3, r_src)] = p.BLACK_ROOK
-                        self._board[self.get_idx(self._files-1, r_src)] = p.NONE
-
-                    self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
-                    self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
-
-                # TODO: change castling to use its flag
-                # if(move.check_flag(MoveFlag.CASTLE)):
-                    
-
-            case p.ROOK:
-                # Update castling rights
-                # Left 
-                if f_src == 0: 
-                    if self._is_white_to_move:
-                        self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
-                    else:
-                        self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
-                # Right
-                elif f_src == self._files - 1:
-                    if self._is_white_to_move:
-                        self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
-                    else:
-                        self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
-
-        match p.piece_type(dst_piece):
-            case p.ROOK:
-                # Remove castling rights if rook is captured
-                # White captured black's rook
-                if self._is_white_to_move:
-                    if dst == self._grid_size - self._files - 1:
-                        self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
-                    elif dst == self._grid_size - 1:
-                        self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
-                # Black captured white's rook
-                else:
-                    if dst == 0:
-                        self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
-                    elif dst == self._files - 1:
-                        self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
-
-        # # Captured en passant
-        # if move.check_flag(MoveFlag.EN_PASSANT):
-        # # if en_passant_prev == dst:
-        #     if self._is_white_to_move: 
-        #         self._board[dst - self._files] = p.NONE 
-        #     else:
-        #         self._board[dst + self._files] = p.NONE 
-
-        self._board[dst] = self._board[src]
-        self._board[src] = p.NONE 
-        
-        # Change turn
-        self._is_white_to_move = not self._is_white_to_move
-        
+        self._do_move(move)   # use do/undo implementation
         return True
-
+        
     def _clear_castling_rights(self, mask: int) -> None:
         self._castling_rights &= ~mask
 
@@ -459,27 +329,41 @@ class Board:
         return []
     
     def get_legal_moves(self, src: int) -> list[Move]:
-        pseudo: list[Move] = self.get_pseudolegal_moves(src)
+        pseudo = self.get_pseudolegal_moves(src)
+        if not pseudo:
+            return []
+
+        side = self._is_white_to_move  # mover color BEFORE move
+        king_sq0 = self._find_king(side)
+        if king_sq0 == -1:
+            return []
+
         legal: list[Move] = []
-        piece: int = self._board[src]
-        white_to_move: bool = p.is_white(piece)
 
-        king_sq: int = self._find_king(white_to_move)
-        for move in pseudo:
-            # make a temporary copy
-            board_copy: npt.NDArray[np.uint8] = self._board.copy()
-            board_copy[move.dst_square] = board_copy[move.src_square]
-            board_copy[move.src_square] = p.NONE
+        for m in pseudo:
+            # Castling extra restriction: not out of / through / into check
+            if m.check_flag(MoveFlag.CASTLE):
+                if self.is_square_attacked(king_sq0, by_white=not side):
+                    continue
+                f_src, r_src = self.idx_to_f_r(m.src_square)
+                f_dst, _     = self.idx_to_f_r(m.dst_square)
+                if f_dst > f_src:  # kingside
+                    through = [self.get_idx(f_src + 1, r_src), self.get_idx(f_src + 2, r_src)]
+                else:              # queenside
+                    through = [self.get_idx(f_src - 1, r_src), self.get_idx(f_src - 2, r_src)]
+                if any(self.is_square_attacked(sq, by_white=not side) for sq in through):
+                    continue
 
-            # find new king position if moved
-            king_pos: int = move.dst_square if p.piece_type(piece) == p.KING else king_sq
+            undo = self._do_move(m)
+            king_sq = self._find_king(side)  # mover’s king square after move
+            illegal = (king_sq == -1) or self.is_square_attacked(king_sq, by_white=not side)
+            self._undo_move(undo)
 
-            if not self.is_square_attacked(king_pos, by_white=not white_to_move):
-                legal.append(move)
+            if not illegal:
+                legal.append(m)
 
         return legal
-
-
+    
     def get_board(self) -> npt.NDArray[np.uint8]:
         return self._board
 
@@ -492,7 +376,10 @@ class Board:
         if castle:
             moves.append(Move.castle(src, dst))
         elif en_passant:
-            moves.append(Move.en_passant(src, dst))
+            # captured pawn is behind dst
+            src_piece = int(self._board[src])
+            cap = p.BLACK_PAWN if p.is_white(src_piece) else p.WHITE_PAWN
+            moves.append(Move(src, dst, MoveFlag.EN_PASSANT | MoveFlag.CAPTURE, Promotion.NONE, cap))
         elif promotion:
             moves.append(Move.promotion_to(src, dst, promotion, captured))
         elif double_pawn:
@@ -576,3 +463,161 @@ class Board:
         idxs = np.where(self._board == king_piece)[0]
         return int(idxs[0]) if len(idxs) > 0 else -1
 
+    def _do_move(self, move: Move) -> Undo:
+        src, dst = move.src_square, move.dst_square
+        moved_piece = int(self._board[src])
+        captured_piece = int(self._board[dst])
+        captured_square = dst
+
+        undo = Undo(
+            move=move,
+            moved_piece=moved_piece,
+            captured_piece=captured_piece,
+            captured_square=captured_square,
+            prev_castling_rights=self._castling_rights,
+            prev_en_passant_target=self._en_passant_target,
+            prev_halfmove_clock=self._halfmove_clock,
+            prev_is_white_to_move=self._is_white_to_move,
+        )
+
+        # reset en passant by default
+        self._en_passant_target = None
+
+        # halfmove clock (for 50-move draw)
+        # reset on pawn move or any capture
+        if p.piece_type(moved_piece) == p.PAWN or move.check_flag(MoveFlag.CAPTURE):
+            self._halfmove_clock = 0
+        else:
+            self._halfmove_clock += 1
+
+        # --- special moves ---
+        if move.check_flag(MoveFlag.EN_PASSANT):
+            # capture pawn behind destination
+            if p.is_white(moved_piece):
+                cap_sq = dst - self._files
+            else:
+                cap_sq = dst + self._files
+            undo.captured_square = cap_sq
+            undo.captured_piece = int(self._board[cap_sq])
+            self._board[cap_sq] = p.NONE
+
+        if move.check_flag(MoveFlag.CASTLE):
+            f_src, r_src = self.idx_to_f_r(src)
+            f_dst, _ = self.idx_to_f_r(dst)
+            # kingside: dst file is 6; queenside: dst file is 2
+            if f_dst > f_src:
+                rook_src = self.get_idx(self._files - 1, r_src)
+                rook_dst = self.get_idx(self._files - 3, r_src)
+            else:
+                rook_src = self.get_idx(0, r_src)
+                rook_dst = self.get_idx(3, r_src)
+            undo.rook_src, undo.rook_dst = rook_src, rook_dst
+            self._board[rook_dst] = self._board[rook_src]
+            self._board[rook_src] = p.NONE
+
+        # update castling rights due to king/rook moves or rook capture
+        t = p.piece_type(moved_piece)
+        if t == p.KING:
+            if p.is_white(moved_piece):
+                self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE | self.WHITE_CASTLE_QUEENSIDE)
+            else:
+                self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE | self.BLACK_CASTLE_QUEENSIDE)
+        elif t == p.ROOK:
+            f_src, r_src = self.idx_to_f_r(src)
+            if p.is_white(moved_piece):
+                if f_src == 0 and r_src == 0: self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
+                if f_src == 7 and r_src == 0: self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
+            else:
+                if f_src == 0 and r_src == 7: self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
+                if f_src == 7 and r_src == 7: self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
+
+        if p.piece_type(undo.captured_piece) == p.ROOK:
+            f_dst, r_dst = self.idx_to_f_r(dst)
+            if p.is_white(undo.captured_piece):
+                if f_dst == 0 and r_dst == 0: self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
+                if f_dst == 7 and r_dst == 0: self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
+            else:
+                if f_dst == 0 and r_dst == 7: self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
+                if f_dst == 7 and r_dst == 7: self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
+
+        # double pawn sets en passant target
+        if move.check_flag(MoveFlag.DOUBLE_PAWN):
+            f_src, r_src = self.idx_to_f_r(src)
+            _, r_dst = self.idx_to_f_r(dst)
+            self._en_passant_target = self.get_idx(f_src, (r_src + r_dst) // 2)
+
+        # apply main piece move
+        self._board[dst] = self._board[src]
+        self._board[src] = p.NONE
+
+        # promotion replaces piece on dst
+        if move.check_flag(MoveFlag.PROMOTION):
+            color = p.piece_color(moved_piece)
+            promo_t = {
+                Promotion.QUEEN:  p.QUEEN,
+                Promotion.ROOK:   p.ROOK,
+                Promotion.BISHOP: p.BISHOP,
+                Promotion.KNIGHT: p.KNIGHT,
+            }.get(move.promotion)
+            if promo_t is None:
+                raise AssertionError("Promotion flag set but invalid promotion piece")
+            self._board[dst] = p.make_piece(promo_t, color)
+
+        # side to move flips
+        self._is_white_to_move = not self._is_white_to_move
+        return undo
+
+
+    def _undo_move(self, undo: Undo) -> None:
+        move = undo.move
+        src, dst = move.src_square, move.dst_square
+
+        # restore turn first (so helpers that depend on side can be sane)
+        self._is_white_to_move = undo.prev_is_white_to_move
+
+        # restore clocks/state
+        self._castling_rights = undo.prev_castling_rights
+        self._en_passant_target = undo.prev_en_passant_target
+        self._halfmove_clock = undo.prev_halfmove_clock
+
+        # undo promotion: put original pawn back on src
+        # (we stored moved_piece which is the original piece before promotion)
+        self._board[src] = undo.moved_piece
+
+        # restore captured piece
+        self._board[undo.captured_square] = undo.captured_piece
+
+        # clear dst unless captured_square==dst (normal capture)
+        if undo.captured_square != dst:
+            self._board[dst] = p.NONE
+
+        # undo castling rook move
+        if move.check_flag(MoveFlag.CASTLE):
+            self._board[undo.rook_src] = self._board[undo.rook_dst]
+            self._board[undo.rook_dst] = p.NONE
+
+    def get_all_legal_moves(self) -> list[Move]:
+        legal: list[Move] = []
+        side = self._is_white_to_move
+        for src in range(self._grid_size):
+            piece = int(self._board[src])
+            if piece == p.NONE:
+                continue
+            if p.is_white(piece) != side:
+                continue
+            legal.extend(self.get_legal_moves(src))
+        return legal
+
+    def in_check(self, white: bool) -> bool:
+        k = self._find_king(white)
+        return k != -1 and self.is_square_attacked(k, by_white=not white)
+
+    def game_end_state(self) -> tuple[bool, str]:
+        """(done, reason) where reason in {'checkmate','stalemate','playing'} for now."""
+        moves = self.get_all_legal_moves()
+        if moves:
+            return False, "playing"
+        side = self._is_white_to_move
+        if self.in_check(side):
+            return True, "checkmate"
+        return True, "stalemate"
