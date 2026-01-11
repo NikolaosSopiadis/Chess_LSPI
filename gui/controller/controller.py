@@ -97,6 +97,7 @@ class Controller:
                 x, y = event.size
                 self._view.on_resize(x,y)
                     
+    # For the agent: never call move_piece; always choose a full Move.
     def move_piece(self, source: int, destination: int) -> bool:
         """Attempt to move a piece from source square to destination square
 
@@ -107,14 +108,19 @@ class Controller:
         Returns:
             bool: True if success, False if illegal move
         """
-        move = Move(source, destination)
-        return self._model.make_move(move)
+        cands = self.get_moves_to(source, destination, legal=True)
+        if not cands:
+            return False
+        if len(cands) != 1:
+            # promotion ambiguity etc. — GUI should call make_move() with chosen Move
+            return False
+        return self.make_move(cands[0])
     
     # TODO: SOS Cache legal moves since they are asked multiple times per second (each frame a square is highlighted)
     # def get_legal_moves(self, square: int) -> list[int]:
         # file, rank = self._model.idx_to_f_r(square)
         # return self._model.get_legal_moves(file, rank)
-        return self._model.get_legal_moves(square)
+        # return self._model.get_legal_moves(square)
     
     def get_moves(self, src: int, legal: bool = True) -> list[Move]:
         if legal:
