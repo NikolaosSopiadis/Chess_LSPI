@@ -11,19 +11,19 @@ def test_make_piece_and_constants(p):
     assert wp == Piece.WHITE_PAWN
     assert bp == Piece.BLACK_PAWN
 
-def test_type_and_colour(p):
+def test_type_and_color(p):
     wp = p.make_piece(Piece.PAWN, Piece.WHITE)
     bp = p.make_piece(Piece.PAWN, Piece.BLACK)
     assert p.piece_type(wp) == Piece.PAWN
-    assert p.piece_colour(wp) == Piece.WHITE
+    assert p.piece_color(wp) == Piece.WHITE
     assert p.piece_type(bp) == Piece.PAWN
-    assert p.piece_colour(bp) == Piece.BLACK
+    assert p.piece_color(bp) == Piece.BLACK
 
-def test_colour_helpers(p):
+def test_color_helpers(p):
     wp = p.make_piece(Piece.PAWN, Piece.WHITE)
     bp = p.make_piece(Piece.PAWN, Piece.BLACK)
-    assert p.is_colour(wp, Piece.WHITE)
-    assert not p.is_colour(bp, Piece.WHITE)
+    assert p.is_color(wp, Piece.WHITE)
+    assert not p.is_color(bp, Piece.WHITE)
     assert p.is_white(wp)
     assert not p.is_white(bp)
 
@@ -51,6 +51,6 @@ def test_slider_checks(p, kind, is_orth, is_diag, is_slide):
 
 def test_none_piece_behavior(p):
     assert p.piece_type(Piece.NONE) == 0
-    assert p.piece_colour(Piece.NONE) == 0
-    assert not p.is_colour(Piece.NONE, Piece.WHITE)
+    assert p.piece_color(Piece.NONE) == 0
+    assert not p.is_color(Piece.NONE, Piece.WHITE)
     assert not p.is_white(Piece.NONE)
