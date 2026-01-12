@@ -20,6 +20,11 @@ def main() -> None:
     ap.add_argument("--iters", type=int, default=20)
     ap.add_argument("--tol", type=float, default=1e-6)
     ap.add_argument("--max-samples", type=int, default=None)
+    ap.add_argument(
+        "--ckpt-every-iter",
+        action="store_true",
+        help="Save a checkpoint after every LSPI iteration",
+    )
     args = ap.parse_args()
 
     feats = get_features("v1_basic")
@@ -30,13 +35,34 @@ def main() -> None:
         tol=args.tol,
         max_samples=args.max_samples,
     )
-
-    t0 = time.time()
-    w = solve_lspi(args.samples, feats, cfg, verbose=True)
-    dt = time.time() - t0
-
+    
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    t0 = time.time()
+    
+    def ckpt_cb(iter_idx: int, w_iter: np.ndarray, delta: float) -> None:
+        if not args.ckpt_every_iter:
+            return
+        # keep history without overwriting:
+        iter_path = out.with_name(f"{out.stem}.iter{iter_idx:02d}{out.suffix}")
+        agent_i = LSPIV1Agent(
+            info=AgentInfo(name="LSPI", version=f"v1_iter{iter_idx:02d}"),
+            w=w_iter,
+            feature_name="v1_basic",
+        )
+        agent_i.save(str(iter_path))
+        print(f"[ckpt] saved: {iter_path}  (|Δw|={delta:.3e})")
+
+    w = solve_lspi(
+        args.samples,
+        feats,
+        cfg,
+        verbose=True,
+        checkpoint_cb=ckpt_cb if args.ckpt_every_iter else None,
+    )
+    
+    dt = time.time() - t0
 
     agent = LSPIV1Agent(
         info=AgentInfo(name="LSPI", version="v1"),
@@ -48,7 +74,6 @@ def main() -> None:
     print(f"Saved checkpoint: {out}")
     print(f"Training time: {dt:.1f}s")
     print(f"w[:5] = {w[:5]}")
-
 
 if __name__ == "__main__":
     main()
