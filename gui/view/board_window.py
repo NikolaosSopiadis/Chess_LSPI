@@ -628,3 +628,24 @@ class BoardWindow:
         self._game_over_surface.blit(sub_surf, sub_rect)
 
         self._game_over_dirty = False
+
+    def on_position_changed(self) -> None:
+        # Clear interaction state
+        self._hover_idx = -1
+        self._selected_idx = -1
+        self._picked_up_piece = -1
+        self._legal_dests.clear()
+        self._mouse_clicked = False
+
+        # Clear promotion UI if it was open
+        self._promotion_active = False
+        self._promotion_idx = -1
+        self._promotion_options.clear()
+        self._promotion_rects.clear()
+        self._promotion_surface.fill((0, 0, 0, 0))
+        self._promotion_dirty = True
+
+        # Force redraw
+        self._pieces_dirty = True
+        self._overlay_dirty = True
+        self._needs_redraw = True

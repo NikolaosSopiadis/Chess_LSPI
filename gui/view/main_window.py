@@ -31,7 +31,7 @@ class MainWindow:
         self._board_height: int = height
         
         self._clock:        pg.Clock = pg.Clock()
-        self._manager: pgg.UIManager = pgg.UIManager((width, height))
+        self._manager: pgg.UIManager = pgg.UIManager((width, height), theme_path="assets/theme.json")
 
         self._max_fps: int = 60
         self._dt:      float = self._clock.tick(self._max_fps) / 1000

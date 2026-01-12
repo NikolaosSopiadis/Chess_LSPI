@@ -25,6 +25,8 @@ class Controller:
         self._model: Board     = Board(ranks, files)
         
         self._grid_size = self._ranks * self._files
+        
+        self._sync_sidebar()
 
     def get_state(self) -> int:
         return self._state
@@ -90,13 +92,21 @@ class Controller:
                 
             case pg.MOUSEBUTTONUP:
                 self._view.on_mouse_up(event.pos)
-                
+         
             case pgg.UI_BUTTON_PRESSED:
-                
-                match event.ui_element:
-                    case self._view._sidebar._test_button:
-                        pass
-                    
+                sb = self._view._sidebar
+
+                if event.ui_element == sb._new_game_button:
+                    self.new_game()
+
+                elif event.ui_element == sb._load_fen_button:
+                    self.new_game(sb.get_fen_text())
+
+            case pgg.UI_TEXT_ENTRY_FINISHED:
+                sb = self._view._sidebar
+                if event.ui_element == sb._fen_entry:
+                    self.new_game(sb.get_fen_text())
+
             case pg.VIDEORESIZE:
                 x, y = event.size
                 self._view.on_resize(x,y)
@@ -145,7 +155,61 @@ class Controller:
         return [m for m in self.get_moves(src, legal=legal) if m.dst_square == dst]
 
     def make_move(self, move: Move) -> bool:
-        return self._model.make_move(move)
+        ok = self._model.make_move(move)
+        if ok:
+            self._sync_sidebar()
+        return ok
 
     def get_game_end_state(self) -> tuple[bool, str]:
         return self._model.game_end_state()
+
+    def _castling_string(self) -> str:
+        r = self._model._castling_rights  # bitmask
+        s = ""
+        if r & self._model.WHITE_CASTLE_KINGSIDE:  s += "K"
+        if r & self._model.WHITE_CASTLE_QUEENSIDE: s += "Q"
+        if r & self._model.BLACK_CASTLE_KINGSIDE:  s += "k"
+        if r & self._model.BLACK_CASTLE_QUEENSIDE: s += "q"
+        return s if s else "-"
+
+    def get_debug_text(self) -> str:
+        b = self._model
+        turn = "White" if b.get_is_white_to_move() else "Black"
+
+        ep = "-"
+        if b._en_passant_target is not None:
+            ep = b.idx_to_algebraic(b._en_passant_target)
+
+        rep = b._rep_counts.get(b._zkey, 0)
+
+        # NOTE: you can add/remove anything here freely
+        return (
+            f"FEN:\n{b.to_fen()}\n"
+            f"\nTurn: {turn}\n"
+            f"Castling: {self._castling_string()}  (mask={b._castling_rights:04b})\n"
+            f"EP: {ep}\n"
+            f"Halfmove: {b._halfmove_clock}\n"
+            f"Zobrist: {b._zkey:#018x}\n"
+            f"Repetition count (current): {rep}\n"
+        )
+
+    def _sync_sidebar(self, *, override_status: str | None = None) -> None:
+        done, reason = self._model.game_end_state()
+        status = override_status if override_status is not None else ("game over: " + reason if done else "playing")
+        self._view._sidebar.set_status(status)
+        self._view._sidebar.set_debug(self.get_debug_text())
+
+    def new_game(self, fen: str | None = None) -> bool:
+        try:
+            if fen and fen.strip():
+                self._model.init_board(fen.strip())
+            else:
+                self._model.init_board()
+        except ValueError as e:
+            self._sync_sidebar(override_status=f"bad FEN: {e}")
+            return False
+
+        # Tell the board view to clear selection/promotion and redraw
+        self._view._board.on_position_changed()
+        self._sync_sidebar()
+        return True
