@@ -146,3 +146,6 @@ class Controller:
 
     def make_move(self, move: Move) -> bool:
         return self._model.make_move(move)
+
+    def get_game_end_state(self) -> tuple[bool, str]:
+        return self._model.game_end_state()

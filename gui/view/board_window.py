@@ -41,10 +41,10 @@ class BoardWindow:
         self._clear_selection_on_mouse_up: bool = False
         
         # Try to decrease resource utilization by not redrawing when not necessary
-        self._needs_redraw:   bool = True         
-        self._board_dirty:    bool = True  # squares/flip/size changed
-        self._pieces_dirty:   bool = True  # pieces changed (on move)
-        self._overlay_dirty:  bool = True  # hover/selection changed
+        self._needs_redraw:    bool = True         
+        self._board_dirty:     bool = True  # squares/flip/size changed
+        self._pieces_dirty:    bool = True  # pieces changed (on move)
+        self._overlay_dirty:   bool = True  # hover/selection changed
         self._promotion_dirty: bool = False 
 
         self._promotion_active:         bool = False 
@@ -59,11 +59,16 @@ class BoardWindow:
         
         self._board_rect: pg.Rect = pg.Rect(x0, y0, width, height)
         
-        self._board_surface:      pg.Surface = pg.Surface((width, height)).convert()
-        self._pieces_surface:     pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
-        self._overlay_surface:    pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
-        self._promotion_surface:  pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
-        self._composed_surface:   pg.Surface = pg.Surface((width, height)).convert()
+        self._board_surface:     pg.Surface = pg.Surface((width, height)).convert()
+        self._pieces_surface:    pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._overlay_surface:   pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._promotion_surface: pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._game_over_surface: pg.Surface = pg.Surface((width, height), pg.SRCALPHA)
+        self._composed_surface:  pg.Surface = pg.Surface((width, height)).convert()
+        
+        self._game_over_active: bool = False
+        self._game_over_dirty:  bool = False
+        self._game_over_reason:  str = ""
 
         self._board: pgg.elements.UIImage = pgg.elements.UIImage(
             relative_rect = self._board_rect,
@@ -141,7 +146,12 @@ class BoardWindow:
             self._composed_surface.blit(self._promotion_surface, (0, 0))
 
         self._composed_surface.blit(self._overlay_surface, (0, 0))
-        
+
+        if self._game_over_active:
+            if self._game_over_dirty:
+                self._rebuild_game_over_ui()
+            self._composed_surface.blit(self._game_over_surface, (0, 0))
+
         self._board.set_image(self._composed_surface)  # update the displayed image 
         
     def _rebuild_chess_board_surface(self) -> None:
@@ -299,20 +309,30 @@ class BoardWindow:
         self._pieces_dirty    = True
         self._overlay_dirty   = True
         self._promotion_dirty = True
+        self._game_over_dirty = True
         self._needs_redraw    = True
     
         self._board_rect:          pg.Rect  = pg.Rect(self._x0, self._y0, new_width, new_height)
         self._board_surface:    pg.Surface  = pg.Surface((new_width, new_height)).convert()
         self._pieces_surface:   pg.Surface  = pg.Surface((new_width, new_height), pg.SRCALPHA)
         self._overlay_surface:  pg.Surface  = pg.Surface((new_width, new_height), pg.SRCALPHA)
-        self._composed_surface: pg.Surface  = pg.Surface((new_width, new_height)).convert()
         self._promotion_surface: pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._game_over_surface: pg.Surface = pg.Surface((new_width, new_height), pg.SRCALPHA)
+        self._composed_surface: pg.Surface  = pg.Surface((new_width, new_height)).convert()
         self._board.set_dimensions((new_width, new_height))
 
     def on_mouse_down(self, mouse_pos: tuple[float, float]) -> None:
         if self._promotion_active:
             # Only allow picking a promotion or clicking out
             self._handle_promotion_click(mouse_pos)
+            return
+        
+        if self._game_over_active:
+            # dismiss overlay
+            self._game_over_active = False
+            self._game_over_reason = ""
+            self._game_over_surface.fill((0, 0, 0, 0))
+            self._needs_redraw = True
             return
         
         self._mouse_clicked   = True
@@ -348,6 +368,9 @@ class BoardWindow:
         self._needs_redraw  = True
             
     def on_mouse_move(self, mouse_pos):
+        if self._game_over_active:
+            return
+        
         self._mouse_pos = mouse_pos
         new_hover = self._get_idx_from_mouse_pos(mouse_pos)
 
@@ -365,6 +388,9 @@ class BoardWindow:
 
 
     def on_mouse_up(self, mouse_pos: tuple[float, float]) -> None:
+        if self._game_over_active:
+            return
+
         self._mouse_clicked = False
         dst: int = self._get_idx_from_mouse_pos(mouse_pos)
 
@@ -501,13 +527,13 @@ class BoardWindow:
 
         # Otherwise commit the single (or first) non-promotion move
         self._ctrl.make_move(cands[0])
+        self._after_move_commit()
         self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
         
     # TODO: clean up promotion ui code
     def _handle_promotion_click(self, mouse_pos: tuple[float, float]) -> None:
         if not self._promotion_active:
             return
-        mx, my = mouse_pos
         lx, ly = self._to_local(mouse_pos)
 
         # If clicked outside => (option A) cancel mode; (option B) do nothing
@@ -523,8 +549,82 @@ class BoardWindow:
             if rect.collidepoint(lx, ly):
                 self._ctrl.make_move(move)
                 self._exit_promotion_mode()
+                self._after_move_commit()
                 self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
                 break
 
     def _to_local(self, pos: tuple[float, float]) -> tuple[float, float]:
         return (pos[0] - self._board_rect.left, pos[1] - self._board_rect.top)
+
+    def _after_move_commit(self) -> None:
+        """Call after a move is successfully committed to the controller."""
+        done, reason = self._ctrl.get_game_end_state()
+        if not done:
+            return
+
+        self._game_over_active = True
+        self._game_over_reason = reason
+        self._game_over_dirty = True
+        self._needs_redraw = True
+
+        # Optional: clear selection so the board looks "clean"
+        self._selected_idx = -1
+        self._legal_dests.clear()
+        self._picked_up_piece = -1
+        self._mouse_clicked = False
+
+    def _format_game_over_text(self) -> str:
+        reason = self._game_over_reason
+
+        if reason == "checkmate":
+            # After a move, side-to-move is the one who is checkmated.
+            winner = "Black" if self._ctrl.is_white_to_move() else "White"
+            return f"Checkmate — {winner} wins"
+
+        if reason == "stalemate":
+            return "Stalemate — draw"
+
+        if reason == "threefold repetition":
+            return "Draw — threefold repetition"
+
+        if reason == "fifty-move rule":
+            return "Draw — fifty-move rule"
+
+        if reason == "insufficient material":
+            return "Draw — insufficient material"
+
+        return f"Game over — {reason}"
+
+    def _rebuild_game_over_ui(self) -> None:
+        self._game_over_surface.fill((0, 0, 0, 0))
+
+        # Dim the board
+        dim = pg.Surface((self._width, self._height), pg.SRCALPHA)
+        dim.fill((0, 0, 0, 140))
+        self._game_over_surface.blit(dim, (0, 0))
+
+        # Panel
+        panel_w = int(self._width * 0.75)
+        panel_h = max(140, int(self._height * 0.22))
+        px = (self._width - panel_w) // 2
+        py = (self._height - panel_h) // 2
+        panel = pg.Rect(px, py, panel_w, panel_h)
+        pg.draw.rect(self._game_over_surface, (240, 235, 230, 230), panel, border_radius=12)
+        pg.draw.rect(self._game_over_surface, (40, 35, 30, 255), panel, width=2, border_radius=12)
+
+        title = self._format_game_over_text()
+        subtitle = "Click anywhere to continue"
+
+        font_title = pg.font.Font(None, 54)
+        font_sub = pg.font.Font(None, 32)
+
+        title_surf = font_title.render(title, True, (20, 20, 20))
+        sub_surf = font_sub.render(subtitle, True, (20, 20, 20))
+
+        title_rect = title_surf.get_rect(center=(panel.centerx, panel.centery - 18))
+        sub_rect = sub_surf.get_rect(center=(panel.centerx, panel.centery + 30))
+
+        self._game_over_surface.blit(title_surf, title_rect)
+        self._game_over_surface.blit(sub_surf, sub_rect)
+
+        self._game_over_dirty = False
