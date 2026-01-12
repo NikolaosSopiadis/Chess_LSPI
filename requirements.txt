@@ -4,3 +4,4 @@ pytest-cov
 pygame-ce
 pygame_gui
 numpy
+tqdm
