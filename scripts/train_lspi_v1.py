@@ -25,6 +25,7 @@ def main() -> None:
         action="store_true",
         help="Save a checkpoint after every LSPI iteration",
     )
+    ap.add_argument("--preload", action="store_true", help="Load dataset into RAM once")
     args = ap.parse_args()
 
     feats = get_features("v1_basic")
@@ -60,6 +61,7 @@ def main() -> None:
         cfg,
         verbose=True,
         checkpoint_cb=ckpt_cb if args.ckpt_every_iter else None,
+        preload=args.preload,
     )
     
     dt = time.time() - t0
