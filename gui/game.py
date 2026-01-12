@@ -18,7 +18,7 @@ class Game:
         self._view: MainWindow = self._ctrl.get_view() # TODO: Uncouple view from game
     
     def run(self) -> None:
-        last_print = pg.time.get_ticks()
+        # last_print = pg.time.get_ticks()
         while self._ctrl.get_state() == Controller.RUNNING:
             
             for event in pg.event.get():
@@ -26,10 +26,10 @@ class Game:
                     
             self._view.draw()
             
-            now = pg.time.get_ticks()
-            if now - last_print > 1000:
-                print(f"fps = {self._view._clock.get_fps():.1f}")
-                last_print = now
+            # now = pg.time.get_ticks()
+            # if now - last_print > 1000:
+            #     print(f"fps = {self._view._clock.get_fps():.1f}")
+            #     last_print = now
                     
         print("Exiting")
         pg.quit()
