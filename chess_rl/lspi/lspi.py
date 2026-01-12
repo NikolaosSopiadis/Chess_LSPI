@@ -2,7 +2,6 @@
 from __future__ import annotations
 import multiprocessing as mp
 from multiprocessing.process import BaseProcess
-from queue import Empty
 
 from dataclasses import dataclass
 import gzip
@@ -173,7 +172,10 @@ def _accumulate_A_b(
 
         if done:
             phi_next = np.zeros(d, dtype=np.float64)
-
+        else:
+            b_next.init_board(str(rec["fen_next"]))
+            phi_next = greedy_choice(b_next, w, feats).phi
+    
         diff = phi - cfg.gamma * phi_next
         # A += np.outer(phi, diff)
         # Replace the above line with this to avoid a (d,d) temporary:
