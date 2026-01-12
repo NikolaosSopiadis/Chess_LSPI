@@ -26,6 +26,8 @@ def main() -> None:
         help="Save a checkpoint after every LSPI iteration",
     )
     ap.add_argument("--preload", action="store_true", help="Load dataset into RAM once")
+    ap.add_argument("--shards-dir", default="", help="Directory containing dataset shard .jsonl.gz files")
+    ap.add_argument("--workers", type=int, default=0, help="Processes for parallel accumulate (0=auto)")
     args = ap.parse_args()
 
     feats = get_features("v1_basic")
@@ -41,6 +43,11 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
+    
+    shard_paths = None
+    if args.shards_dir.strip():
+        shard_paths = sorted(str(p) for p in Path(args.shards_dir).glob("*.jsonl.gz"))
+
     
     def ckpt_cb(iter_idx: int, w_iter: np.ndarray, delta: float) -> None:
         if not args.ckpt_every_iter:
@@ -62,6 +69,9 @@ def main() -> None:
         verbose=True,
         checkpoint_cb=ckpt_cb if args.ckpt_every_iter else None,
         preload=args.preload,
+        shard_paths=shard_paths,
+        workers=(args.workers or None),
+        feature_name="v1_basic",
     )
     
     dt = time.time() - t0

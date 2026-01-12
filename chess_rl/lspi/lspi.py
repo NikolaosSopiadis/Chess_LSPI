@@ -1,9 +1,11 @@
 # chess_rl/lspi/lspi.py
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 import gzip
 import json
+import os
 from typing import Iterator, Optional, cast
 from collections.abc import Callable
 
@@ -240,6 +242,9 @@ def solve_lspi(
     verbose: bool = True,
     checkpoint_cb: Optional[CheckpointCB] = None,
     preload: bool = False,
+    shard_paths: Optional[list[str]] = None,
+    workers: Optional[int] = None, 
+    feature_name: str = "v1_basic",
 ) -> np.ndarray:
     d = feats.spec.dim
     w_arr = np.zeros(d, dtype=np.float64) if w0 is None else np.asarray(w0, dtype=np.float64).copy()
@@ -262,7 +267,17 @@ def solve_lspi(
     I: Float64Array = cast(Float64Array, np.eye(d, dtype=np.float64))
 
     for it in range(cfg.max_iters):
-        if samples_mem is not None:
+        if shard_paths:
+            A, bvec = _accumulate_A_b_parallel(
+                shard_paths,
+                w,
+                feature_name,
+                cfg,
+                workers=workers,
+                verbose=verbose,
+                desc=f"LSPI accumulate shards {it+1}/{cfg.max_iters}",
+            )
+        elif samples_mem is not None:
             A, bvec = _accumulate_A_b_mem(
                 samples_mem,
                 w,
@@ -311,3 +326,71 @@ def solve_lspi(
             break
 
     return w
+
+def _accumulate_shard_worker(
+    shard_path: str,
+    w: Float64Array,
+    feature_name: str,
+    cfg: "LSPIConfig",
+) -> tuple[Float64Array, Float64Array, int]:
+    # Import inside worker so pickling is clean.
+    from chess_rl.features.registry import get as get_features
+    feats = get_features(feature_name)
+
+    A, b = _accumulate_A_b(
+        shard_path,
+        w,
+        feats,
+        cfg,
+        show_progress=False,
+        total_hint=None,
+        desc="",
+    )
+    # Count rows quickly while iterating would be another pass; just return "unknown" as 0
+    # or, simplest: count in the loop inside _accumulate_A_b if you want exact totals.
+    return A, b, 0
+
+def _accumulate_A_b_parallel(
+    shard_paths: list[str],
+    w: Float64Array,
+    feature_name: str,
+    cfg: "LSPIConfig",
+    *,
+    workers: Optional[int] = None,
+    verbose: bool = True,
+    desc: str = "",
+) -> tuple[Float64Array, Float64Array]:
+    # deterministic reduce order
+    shard_paths = sorted(shard_paths)
+
+    # Need feats only for dim
+    from chess_rl.features.registry import get as get_features
+    feats0 = get_features(feature_name)
+    d = feats0.spec.dim
+
+    A: Float64Array = np.zeros((d, d), dtype=np.float64)
+    b: Float64Array = np.zeros((d,), dtype=np.float64)
+
+    max_workers = workers or max(1, (os.cpu_count() or 1) - 1)
+
+    if verbose and tqdm is not None:
+        pbar = tqdm(total=len(shard_paths), desc=desc, unit="shards", mininterval=0.25)
+    else:
+        pbar = None
+
+    with ProcessPoolExecutor(max_workers=max_workers) as ex:
+        futures = [
+            ex.submit(_accumulate_shard_worker, sp, w, feature_name, cfg)
+            for sp in shard_paths
+        ]
+        for fut in futures:
+            A_part, b_part, _ = fut.result()
+            A += A_part
+            b += b_part
+            if pbar is not None:
+                pbar.update(1)
+
+    if pbar is not None:
+        pbar.close()
+
+    return A, b
