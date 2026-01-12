@@ -34,6 +34,17 @@ class Undo:
     prev_zkey:int
     rook_src: int = -1                # for castling
     rook_dst: int = -1
+    
+@dataclass(frozen=True, slots=True)
+class BoardState:
+    board: bytes
+    is_white_to_move: bool
+    castling_rights: int
+    en_passant_target: int | None
+    halfmove_clock: int
+    white_king_sq: int
+    black_king_sq: int
+    zkey: int
 
 # For Zobrist hashing
 _ZRAND = random.Random(0xC0FFEE1234)  # deterministic
@@ -953,3 +964,29 @@ class Board:
                 return True
 
         return False
+
+    def get_state(self) -> "BoardState":
+        return BoardState(
+            board=bytes(self._board),
+            is_white_to_move=self._is_white_to_move,
+            castling_rights=self._castling_rights,
+            en_passant_target=self._en_passant_target,
+            halfmove_clock=self._halfmove_clock,
+            white_king_sq=self._white_king_sq,
+            black_king_sq=self._black_king_sq,
+            zkey=self._zkey,
+        )
+
+    def set_state(self, s: "BoardState") -> None:
+        self._board[:] = s.board
+        self._is_white_to_move = s.is_white_to_move
+        self._castling_rights = s.castling_rights
+        self._en_passant_target = s.en_passant_target
+        self._halfmove_clock = s.halfmove_clock
+        self._white_king_sq = s.white_king_sq
+        self._black_king_sq = s.black_king_sq
+        self._zkey = s.zkey
+
+        # Make do/undo safe after restoring
+        self._rep_stack = [self._zkey]
+        self._rep_counts = {self._zkey: 1}
