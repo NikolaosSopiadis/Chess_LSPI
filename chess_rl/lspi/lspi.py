@@ -4,7 +4,6 @@ import multiprocessing as mp
 from multiprocessing.process import BaseProcess
 from queue import Empty
 
-# from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 import gzip
 import json
@@ -54,8 +53,6 @@ class SamplesMem:
 class _ActionPhiCacheEntry:
     white_to_move: bool
     phis: npt.NDArray[np.float32]   # (M, d) float32 to save RAM
-
-# _action_phi_cache: dict[str, _ActionPhiCacheEntry] = {}
 
 
 def load_samples_mem(
@@ -176,9 +173,6 @@ def _accumulate_A_b(
 
         if done:
             phi_next = np.zeros(d, dtype=np.float64)
-        # else:
-        #     fen_next = rec["fen_next"]
-        #     phi_next = _best_phi_next_cached(fen_next, w, feats, b_next)
 
         diff = phi - cfg.gamma * phi_next
         # A += np.outer(phi, diff)
@@ -345,235 +339,6 @@ def solve_lspi(
 
     return w
 
-# def _accumulate_shard_worker(
-#     shard_path: str,
-#     w: Float64Array,
-#     feature_name: str,
-#     cfg: "LSPIConfig",
-# ) -> tuple[Float64Array, Float64Array, int]:
-#     # Import inside worker so pickling is clean.
-#     from chess_rl.features.registry import get as get_features
-#     feats = get_features(feature_name)
-
-#     A, b = _accumulate_A_b(
-#         shard_path,
-#         w,
-#         feats,
-#         cfg,
-#         show_progress=False,
-#         total_hint=None,
-#         desc="",
-#     )
-#     # Count rows quickly while iterating would be another pass; just return "unknown" as 0
-#     # or, simplest: count in the loop inside _accumulate_A_b if you want exact totals.
-#     return A, b, 0
-
-# def _accumulate_A_b_parallel(
-#     shard_paths: list[str],
-#     w: Float64Array,
-#     feature_name: str,
-#     cfg: "LSPIConfig",
-#     *,
-#     workers: Optional[int] = None,
-#     verbose: bool = True,
-#     desc: str = "",
-# ) -> tuple[Float64Array, Float64Array]:
-#     # deterministic reduce order
-#     shard_paths = sorted(shard_paths)
-
-#     # Need feats only for dim
-#     from chess_rl.features.registry import get as get_features
-#     feats0 = get_features(feature_name)
-#     d = feats0.spec.dim
-
-#     A: Float64Array = np.zeros((d, d), dtype=np.float64)
-#     b: Float64Array = np.zeros((d,), dtype=np.float64)
-
-#     max_workers = workers or max(1, (os.cpu_count() or 1) - 1)
-
-#     if verbose and tqdm is not None:
-#         pbar = tqdm(total=len(shard_paths), desc=desc, unit="shards", mininterval=0.25)
-#     else:
-#         pbar = None
-
-#     with ProcessPoolExecutor(max_workers=max_workers) as ex:
-#         futures = [
-#             ex.submit(_accumulate_shard_worker, sp, w, feature_name, cfg)
-#             for sp in shard_paths
-#         ]
-#         for fut in futures:
-#             A_part, b_part, _ = fut.result()
-#             A += A_part
-#             b += b_part
-#             if pbar is not None:
-#                 pbar.update(1)
-
-#     if pbar is not None:
-#         pbar.close()
-
-#     return A, b
-
-# def _best_phi_next_cached(
-#     fen: str,
-#     w: Float64Array,
-#     feats: FeatureExtractor,
-#     board: Board,
-# ) -> Float64Array:
-#     entry = _action_phi_cache.get(fen)
-#     if entry is None:
-#         board.init_board(fen)
-#         moves = board.get_all_legal_moves()
-#         if not moves:
-#             # terminal / stalemate positions -> next features = 0
-#             phis32 = np.zeros((1, feats.spec.dim), dtype=np.float32)
-#             entry = _ActionPhiCacheEntry(board.get_is_white_to_move(), phis32)
-#         else:
-#             phis = [feats.phi_sa(board, m) for m in moves]          # list of float64 (d,)
-#             phis32 = np.asarray(phis, dtype=np.float32)            # (M, d)
-#             entry = _ActionPhiCacheEntry(board.get_is_white_to_move(), phis32)
-
-#         _action_phi_cache[fen] = entry
-
-#     # score (float32 @ float64 -> float64 scores, fine)
-#     scores = entry.phis @ w
-#     idx = int(np.argmax(scores) if entry.white_to_move else np.argmin(scores))
-#     return np.asarray(entry.phis[idx], dtype=np.float64)
-
-# def _shard_worker_loop(
-#     shard_paths: list[str],
-#     feature_name: str,
-#     cfg: LSPIConfig,
-#     in_q: "mp.Queue[tuple[int, Float64Array] | None]",
-#     out_q: "mp.Queue[tuple[int, Float64Array, Float64Array]]",
-# ) -> None:
-#     # Local imports in subprocess
-#     from chess_rl.features.registry import get as get_features
-
-#     feats = get_features(feature_name)
-
-#     # Local cache PER PROCESS (this is what we want!)
-#     local_cache: dict[str, _ActionPhiCacheEntry] = {}
-#     b_tmp = Board()
-
-#     def best_phi_next_cached_local(fen: str, w: Float64Array) -> Float64Array:
-#         entry = local_cache.get(fen)
-#         if entry is None:
-#             b_tmp.init_board(fen)
-#             moves = b_tmp.get_all_legal_moves()
-#             if not moves:
-#                 phis32 = np.zeros((1, feats.spec.dim), dtype=np.float32)
-#                 entry = _ActionPhiCacheEntry(b_tmp.get_is_white_to_move(), phis32)
-#             else:
-#                 phis = [feats.phi_sa(b_tmp, m) for m in moves]
-#                 phis32 = np.asarray(phis, dtype=np.float32)
-#                 entry = _ActionPhiCacheEntry(b_tmp.get_is_white_to_move(), phis32)
-#             local_cache[fen] = entry
-
-#         scores = entry.phis @ w
-#         idx = int(np.argmax(scores) if entry.white_to_move else np.argmin(scores))
-#         return np.asarray(entry.phis[idx], dtype=np.float64)
-
-#     while True:
-#         msg = in_q.get()
-#         if msg is None:
-#             return
-
-#         iter_idx, w = msg
-
-#         d = feats.spec.dim
-#         A = np.zeros((d, d), dtype=np.float64)
-#         b = np.zeros((d,), dtype=np.float64)
-
-#         # Process assigned shards (fixed assignment!)
-#         for sp in shard_paths:
-#             for rec in iter_samples_jsonl_gz(sp):
-#                 if rec.get("feature_version") != feats.spec.version:
-#                     raise ValueError("feature version mismatch")
-#                 if rec.get("reward_version") not in (None, "v1_terminal_plus_potential"):
-#                     raise ValueError("reward version mismatch")
-
-#                 phi = np.asarray(rec["phi"], dtype=np.float64)
-#                 r = float(rec["r"])
-#                 done = bool(rec["done"])
-
-#                 if done:
-#                     phi_next = np.zeros(d, dtype=np.float64)
-#                 else:
-#                     phi_next = best_phi_next_cached_local(str(rec["fen_next"]), w)
-
-#                 diff = phi - cfg.gamma * phi_next
-#                 for i in range(d):
-#                     A[i] += phi[i] * diff
-#                 b += phi * r
-
-#                 if cfg.max_samples is not None:
-#                     # If you want max_samples to apply globally, enforce it outside per-shard.
-#                     pass
-
-#         out_q.put((iter_idx, A, b))
-        
-# def _accumulate_A_b_parallel_pinned(
-#     shard_paths: list[str],
-#     w: Float64Array,
-#     feature_name: str,
-#     cfg: LSPIConfig,
-#     *,
-#     workers: int,
-#     desc: str,
-#     verbose: bool,
-# ) -> tuple[Float64Array, Float64Array]:
-#     # Split shards deterministically across workers
-#     shard_paths = sorted(shard_paths)
-#     buckets: list[list[str]] = [shard_paths[i::workers] for i in range(workers)]
-
-#     ctx = mp.get_context("fork")  # you are on Linux; this is fastest/stable here
-#     in_queues: list[mp.Queue] = [ctx.Queue(maxsize=1) for _ in range(workers)]
-#     out_q: mp.Queue = ctx.Queue()
-
-#     procs: list[BaseProcess] = []
-#     for i in range(workers):
-#         p = ctx.Process(
-#             target=_shard_worker_loop,
-#             args=(buckets[i], feature_name, cfg, in_queues[i], out_q),
-#             daemon=True,
-#         )
-#         p.start()
-#         procs.append(p)
-
-#     try:
-#         # Kick one iteration of work
-#         iter_idx = 0
-#         for q in in_queues:
-#             q.put((iter_idx, w))
-
-#         A_total: Float64Array = np.zeros((w.shape[0], w.shape[0]), dtype=np.float64)
-#         b_total: Float64Array = np.zeros((w.shape[0],), dtype=np.float64)
-
-#         pbar = tqdm(total=workers, desc=desc, unit="workers", mininterval=0.25) if (verbose and tqdm is not None) else None
-
-#         got = 0
-#         while got < workers:
-#             i_idx, A_part, b_part = out_q.get()
-#             if i_idx != iter_idx:
-#                 continue
-#             A_total += A_part
-#             b_total += b_part
-#             got += 1
-#             if pbar is not None:
-#                 pbar.update(1)
-
-#         if pbar is not None:
-#             pbar.close()
-
-#         return A_total, b_total
-
-#     finally:
-#         for q in in_queues:
-#             q.put(None)
-#         for p in procs:
-#             p.join(timeout=1.0)
-#             if p.is_alive():
-#                 p.kill()
 
 def _load_shards_mem(
     shard_paths: list[str],
