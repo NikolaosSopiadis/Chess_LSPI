@@ -140,6 +140,15 @@ def _accumulate_A_b(
     b_next = Board()  # reuse to avoid reallocation
 
     base_iter: Iterator[dict] = iter_samples_jsonl_gz(samples_path)
+    
+    CHUNK = 4096
+    Phi_buf = np.empty((CHUNK, d), dtype=np.float64)
+    Phi_next_buf = np.empty((CHUNK, d), dtype=np.float64)
+    r_buf = np.empty((CHUNK,), dtype=np.float64)
+    diff_tmp = np.empty((CHUNK, d), dtype=np.float64)
+
+    filled = 0
+    n = 0
 
     pbar = None
     if show_progress and tqdm is not None:
@@ -155,7 +164,6 @@ def _accumulate_A_b(
     else:
         it = base_iter
 
-    n = 0
     for rec in it:
         if rec.get("feature_version") != feats.spec.version:
             raise ValueError(
@@ -166,27 +174,40 @@ def _accumulate_A_b(
         if rec.get("reward_version") not in (None, "v1_terminal_plus_potential"):
             raise ValueError("reward version mismatch ...")
 
-        phi = np.asarray(rec["phi"], dtype=np.float64)
-        r = float(rec["r"])
+        # Fill buffers
+        Phi_buf[filled] = rec["phi"]
+        r_buf[filled] = float(rec["r"])
         done = bool(rec["done"])
 
         if done:
-            phi_next = np.zeros(d, dtype=np.float64)
+            Phi_next_buf[filled].fill(0.0)
         else:
             b_next.init_board(str(rec["fen_next"]))
-            phi_next = greedy_choice(b_next, w, feats).phi
-    
-        diff = phi - cfg.gamma * phi_next
-        # A += np.outer(phi, diff)
-        # Replace the above line with this to avoid a (d,d) temporary:
-        # rank-1 update without creating a (d,d) temporary each row
-        for i in range(d):
-            A[i] += phi[i] * diff
-        b += phi * r
+            Phi_next_buf[filled] = greedy_choice(b_next, w, feats).phi
 
+        filled += 1
         n += 1
+
+        if filled == CHUNK:
+            np.multiply(Phi_next_buf, cfg.gamma, out=diff_tmp)
+            np.subtract(Phi_buf, diff_tmp, out=diff_tmp)
+            A += Phi_buf.T @ diff_tmp
+            b += Phi_buf.T @ r_buf
+            filled = 0
+
         if cfg.max_samples is not None and n >= cfg.max_samples:
             break
+
+    # flush tail
+    if filled:
+        Phi = Phi_buf[:filled]
+        Phi_next = Phi_next_buf[:filled]
+        r_vec = r_buf[:filled]
+        dt = diff_tmp[:filled]
+        np.multiply(Phi_next, cfg.gamma, out=dt)
+        np.subtract(Phi, dt, out=dt)
+        A += Phi.T @ dt
+        b += Phi.T @ r_vec
 
     if pbar is not None:
         pbar.close()
@@ -394,6 +415,10 @@ def _worker_loop_pinned(
     feats = get_features(feature_name)
     b_tmp = Board()
 
+    CHUNK = 4096  # tune: 2048/4096/8192
+    Phi_next_buf = np.empty((CHUNK, feats.spec.dim), dtype=np.float64)
+    diff_tmp = np.empty((CHUNK, feats.spec.dim), dtype=np.float64)
+
     # preload this worker's shard(s) once (big win: no gz/json every LSPI iter)
     samples_mem: Optional[SamplesMem] = None
     if preload:
@@ -403,7 +428,7 @@ def _worker_loop_pinned(
     # fen -> _ActionPhiCacheEntry, LRU via OrderedDict
     lru: "OrderedDict[str, _ActionPhiCacheEntry]" = OrderedDict()
 
-    def best_phi_next_cached_local(fen: str, w: Float64Array) -> Float64Array:
+    def best_phi_next_cached_local(fen: str, w: Float64Array) -> npt.NDArray[np.float32]:
         entry = lru.get(fen)
         if entry is None:
             b_tmp.init_board(fen)
@@ -412,8 +437,9 @@ def _worker_loop_pinned(
                 phis32 = np.zeros((1, feats.spec.dim), dtype=np.float32)
                 entry = _ActionPhiCacheEntry(b_tmp.get_is_white_to_move(), phis32)
             else:
-                phis = [feats.phi_sa(b_tmp, m) for m in moves]   # list[(d,)]
-                phis32 = np.asarray(phis, dtype=np.float32)     # (M,d)
+                phis32 = np.empty((len(moves), feats.spec.dim), dtype=np.float32)
+                for i, m in enumerate(moves):
+                    phis32[i] = feats.phi_sa(b_tmp, m)   # copies into row
                 entry = _ActionPhiCacheEntry(b_tmp.get_is_white_to_move(), phis32)
 
             lru[fen] = entry
@@ -423,9 +449,11 @@ def _worker_loop_pinned(
             # mark as most recently used
             lru.move_to_end(fen)
 
-        scores = entry.phis @ w
+        w32 = w.astype(np.float32, copy=False)   # inside message loop after receiving w
+        scores = entry.phis @ w32
         idx = int(np.argmax(scores) if entry.white_to_move else np.argmin(scores))
-        return np.asarray(entry.phis[idx], dtype=np.float64)
+        # return np.asarray(entry.phis[idx], dtype=np.float64)
+        return entry.phis[idx]
 
     while True:
         msg = in_q.get()
@@ -440,47 +468,84 @@ def _worker_loop_pinned(
         if samples_mem is not None:
             # fast path: mem
             N = samples_mem.phi.shape[0]
-            for i in range(N):
-                phi = samples_mem.phi[i]
-                r = float(samples_mem.r[i])
-                done = bool(samples_mem.done[i])
+            for start in range(0, N, CHUNK):
+                end = min(N, start + CHUNK)
+                B = end - start
 
-                if done:
-                    phi_next = np.zeros(d, dtype=np.float64)
+                Phi = samples_mem.phi[start:end]          # (B,d) view
+                r_vec = samples_mem.r[start:end]          # (B,) view
+                done_vec = samples_mem.done[start:end]    # (B,) view
+
+                Phi_next = Phi_next_buf[:B]
+                Phi_next.fill(0.0)
+
+                if action_cache:
+                    for j in range(B):
+                        if done_vec[j]:
+                            continue
+
+                        fen = samples_mem.fen_next[start + j]
+                        # write float32 -> float64 row (no allocation)
+                        Phi_next[j] = best_phi_next_cached_local(fen, w)
                 else:
-                    fen = samples_mem.fen_next[i]
-                    if action_cache:
-                        phi_next = best_phi_next_cached_local(fen, w)
-                    else:
+                    for j in range(B):
+                        if done_vec[j]:
+                            continue
+                        fen = samples_mem.fen_next[start + j]
                         b_tmp.init_board(fen)
-                        phi_next = greedy_choice(b_tmp, w, feats).phi
+                        Phi_next[j] = greedy_choice(b_tmp, w, feats).phi
 
-                diff = phi - cfg.gamma * phi_next
-                for k in range(d):
-                    A[k] += phi[k] * diff
-                b += phi * r
+                # BLAS update
+                # diff_tmp[:B] = Phi - gamma*Phi_next
+                np.multiply(Phi_next, cfg.gamma, out=diff_tmp[:B])
+                np.subtract(Phi, diff_tmp[:B], out=diff_tmp[:B])
+
+                A += Phi.T @ diff_tmp[:B]
+                b += Phi.T @ r_vec
+
         else:
-            # streaming path: gz/json each iter
+            # streaming path: gz/json each iter (chunked)
+            Phi_buf = np.empty((CHUNK, d), dtype=np.float64)
+            Phi_next_buf = np.empty((CHUNK, d), dtype=np.float64)
+            r_buf = np.empty((CHUNK,), dtype=np.float64)
+            filled = 0
+
+            def flush(B: int) -> None:
+                # diff_tmp[:B] = Phi_buf[:B] - gamma*Phi_next_buf[:B]
+                _update_A_b_chunk(
+                    A, b,
+                    Phi_buf[:B],
+                    Phi_next_buf[:B],
+                    r_buf[:B],
+                    cfg.gamma,
+                    diff_tmp[:B],
+                )
+
             for sp in shard_paths:
                 for rec in iter_samples_jsonl_gz(sp):
-                    phi = np.asarray(rec["phi"], dtype=np.float64)
-                    r = float(rec["r"])
+                    Phi_buf[filled] = rec["phi"]
+                    r_buf[filled] = float(rec["r"])
                     done = bool(rec["done"])
 
                     if done:
-                        phi_next = np.zeros(d, dtype=np.float64)
+                        Phi_next_buf[filled].fill(0.0)
                     else:
                         fen = str(rec["fen_next"])
                         if action_cache:
-                            phi_next = best_phi_next_cached_local(fen, w)
+                            # float32 view -> copied into float64 row
+                            Phi_next_buf[filled] = best_phi_next_cached_local(fen, w)
                         else:
                             b_tmp.init_board(fen)
-                            phi_next = greedy_choice(b_tmp, w, feats).phi
+                            Phi_next_buf[filled] = greedy_choice(b_tmp, w, feats).phi
 
-                    diff = phi - cfg.gamma * phi_next
-                    for k in range(d):
-                        A[k] += phi[k] * diff
-                    b += phi * r
+                    filled += 1
+                    if filled == CHUNK:
+                        flush(CHUNK)
+                        filled = 0
+
+            if filled:
+                flush(filled)
+
 
         out_q.put((iter_idx, A, b))
 
@@ -560,3 +625,18 @@ class PinnedShardPool:
             pbar.close()
 
         return A_total, b_total
+
+def _update_A_b_chunk(
+    A: Float64Array,
+    b: Float64Array,
+    Phi: Float64Array,          # (B,d)
+    Phi_next: Float64Array,     # (B,d)
+    r: Float64Array,            # (B,)
+    gamma: float,
+    diff_tmp: Float64Array,     # (B,d)
+) -> None:
+    # Diff = Phi - gamma*Phi_next
+    np.multiply(Phi_next, gamma, out=diff_tmp)
+    np.subtract(Phi, diff_tmp, out=diff_tmp)
+    A += Phi.T @ diff_tmp
+    b += Phi.T @ r
