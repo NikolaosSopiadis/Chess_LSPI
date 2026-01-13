@@ -35,7 +35,7 @@ def greedy_choice(board: Board, w: Float64Array, feats: FeatureExtractor) -> Gre
     best_score: float = 0.0
 
     for m in moves:
-        phi = np.asarray(feats.phi_sa(board, m), dtype=np.float64)  # (d,)
+        phi = feats.phi_sa(board, m)
         score = float(w @ phi)
 
         if best_move is None:
