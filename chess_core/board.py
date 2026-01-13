@@ -143,6 +143,21 @@ B_CAPS = tuple(
 ### End of precomputed attack tables ###
 ########################################
 
+# material count indices: wp,wn,wb,wr,wq,bp,bn,bb,br,bq
+MAT_INDEX = [-1] * (_MAX_PC + 1)
+MAT_INDEX[p.WHITE_PAWN]   = 0
+MAT_INDEX[p.WHITE_KNIGHT] = 1
+MAT_INDEX[p.WHITE_BISHOP] = 2
+MAT_INDEX[p.WHITE_ROOK]   = 3
+MAT_INDEX[p.WHITE_QUEEN]  = 4
+MAT_INDEX[p.BLACK_PAWN]   = 5
+MAT_INDEX[p.BLACK_KNIGHT] = 6
+MAT_INDEX[p.BLACK_BISHOP] = 7
+MAT_INDEX[p.BLACK_ROOK]   = 8
+MAT_INDEX[p.BLACK_QUEEN]  = 9
+# kings and NONE remain -1
+
+
 @dataclass(slots=True)
 class Undo:
     move: Move
@@ -225,6 +240,9 @@ class Board:
         self._z_side = _rand64()
 
         self._zkey: int = 0
+        
+        # material count       
+        self._mat = [0,0,0,0,0, 0,0,0,0,0]  # wp..bq
 
         # repetition tracking
         self._rep_counts: dict[int, int] = {}
@@ -627,12 +645,14 @@ class Board:
             else:
                 cap_sq = dst + self._files
             cap_piece = int(self._board[cap_sq])
+            self._mat_dec(cap_piece)
             self._z_xor_piece(cap_piece, cap_sq)
             undo.captured_square = cap_sq
             undo.captured_piece = cap_piece
             self._board[cap_sq] = p.NONE
         else:
             if captured_piece != p.NONE:
+                self._mat_dec(captured_piece)
                 self._z_xor_piece(captured_piece, dst) 
             
         if move.flags & F_CASTLE:
@@ -711,6 +731,7 @@ class Board:
 
         # promotion replaces piece on dst
         if move.flags & F_PROMOTION:
+            self._mat_dec(moved_piece)
             color = p.piece_color(moved_piece)
             promo_t = {
                 PROMO_QUEEN:  p.QUEEN,
@@ -721,6 +742,7 @@ class Board:
             if promo_t is None:
                 raise AssertionError("Promotion flag set but invalid promotion piece")
             promo_piece = p.make_piece(promo_t, color)
+            self._mat_inc(promo_piece)
             self._board[dst] = promo_piece
             self._z_xor_piece(promo_piece, dst)
         else:
@@ -756,6 +778,23 @@ class Board:
 
         # restore turn first (so helpers that depend on side can be sane)
         self._is_white_to_move = undo.prev_is_white_to_move
+        
+        # reverse promotion material change
+        if move.flags & F_PROMOTION:
+            color = p.piece_color(undo.moved_piece)  # pawn color
+            promo_t = {
+                PROMO_QUEEN:  p.QUEEN,
+                PROMO_ROOK:   p.ROOK,
+                PROMO_BISHOP: p.BISHOP,
+                PROMO_KNIGHT: p.KNIGHT,
+            }[move.promotion]
+            promo_piece = p.make_piece(promo_t, color)
+            self._mat_dec(promo_piece)       # remove promoted piece
+            self._mat_inc(undo.moved_piece)  # add pawn back
+
+        # restore captured piece material (works for normal + en passant)
+        if undo.captured_piece != p.NONE:
+            self._mat_inc(undo.captured_piece)
 
         # restore clocks/state
         self._castling_rights = undo.prev_castling_rights
@@ -866,6 +905,8 @@ class Board:
         placement, active, castling, ep = parts[:4]
         halfmove = int(parts[4]) if len(parts) >= 5 else 0
         fullmove = int(parts[5]) if len(parts) >= 6 else 1  # optional (but nice to keep)
+        
+        self._mat = [0,0,0,0,0, 0,0,0,0,0]  # reset material count
 
         self._reset_board()
         self._white_king_sq = -1
@@ -890,6 +931,7 @@ class Board:
                 idx = f + (r << 3)
                 piece = self._FEN_TO_PIECE[ch]
                 self._board[idx] = piece
+                self._mat_inc(piece)
                 if piece == p.WHITE_KING:
                     self._white_king_sq = idx
                 elif piece == p.BLACK_KING:
@@ -954,6 +996,7 @@ class Board:
 
     def _reset_board(self) -> None:
         self._board[:] = b"\x00" * self._grid_size
+ 
 
     def _ep_file_for_hash(self) -> int | None:
         """
@@ -1105,11 +1148,30 @@ class Board:
         self._white_king_sq = s.white_king_sq
         self._black_king_sq = s.black_king_sq
         self._zkey = s.zkey
+        
+        self._recompute_mat()
 
         # Make do/undo safe after restoring
         self._rep_stack = [self._zkey]
         self._rep_counts = {self._zkey: 1}
+        
+    def _mat_inc(self, pc: int) -> None:
+        i = MAT_INDEX[pc]
+        if i != -1:
+            self._mat[i] += 1
 
+    def _mat_dec(self, pc: int) -> None:
+        i = MAT_INDEX[pc]
+        if i != -1:
+            self._mat[i] -= 1
+
+    def _recompute_mat(self) -> None:
+        m = [0,0,0,0,0, 0,0,0,0,0]
+        for pc in self._board:
+            i = MAT_INDEX[int(pc)]
+            if i != -1:
+                m[i] += 1
+        self._mat = m
 
 def _on_board(sq: int) -> bool:
     return 0 <= sq < 64

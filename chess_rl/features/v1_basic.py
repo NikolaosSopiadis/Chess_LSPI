@@ -7,9 +7,6 @@ from chess_core.board import Board
 from chess_core.move import Move
 from chess_core.piece import Piece as p
 
-# Import the precomputed tables from board.py to avoid calling p.is_white/p.piece_type repeatedly
-import chess_core.board as board_mod
-
 from .base import FeatureSpec
 
 
@@ -69,31 +66,8 @@ class V1BasicFeatures:
 
     def _phi_afterstate(self, board: Board) -> np.ndarray:
         # Evaluate in the position AFTER move (opponent to move).
-        b = board._board  # bytearray; iterates as ints
 
-        isw = board_mod.IS_WHITE
-        ptype = board_mod.PTYPE
-
-        wp = wn = wb = wr = wq = 0
-        bp = bn = bb = br = bq = 0
-
-        for pc in b:
-            pc = int(pc)
-            if pc == p.NONE:
-                continue
-            t = ptype[pc]
-            if isw[pc]:
-                if t == p.PAWN: wp += 1
-                elif t == p.KNIGHT: wn += 1
-                elif t == p.BISHOP: wb += 1
-                elif t == p.ROOK: wr += 1
-                elif t == p.QUEEN: wq += 1
-            else:
-                if t == p.PAWN: bp += 1
-                elif t == p.KNIGHT: bn += 1
-                elif t == p.BISHOP: bb += 1
-                elif t == p.ROOK: br += 1
-                elif t == p.QUEEN: bq += 1
+        wp, wn, wb, wr, wq, bp, bn, bb, br, bq = board._mat
 
         cr = board._castling_rights
         wk  = 1.0 if (cr & Board.WHITE_CASTLE_KINGSIDE) else 0.0
@@ -105,9 +79,13 @@ class V1BasicFeatures:
 
         mat = (100*(wp-bp) + 320*(wn-bn) + 330*(wb-bb) + 500*(wr-br) + 900*(wq-bq)) / 1000.0
 
-        # Slightly cheaper than board.in_check() calls
-        w_in_check = 1.0 if board.is_square_attacked(board._white_king_sq, by_white=False) else 0.0
-        b_in_check = 1.0 if board.is_square_attacked(board._black_king_sq, by_white=True) else 0.0
+        # Check features only test the side to move
+        if board._is_white_to_move:
+            w_in_check = 1.0 if board.is_square_attacked(board._white_king_sq, by_white=False) else 0.0
+            b_in_check = 0.0
+        else:
+            b_in_check = 1.0 if board.is_square_attacked(board._black_king_sq, by_white=True) else 0.0
+            w_in_check = 0.0
 
         phi = np.empty(16, dtype=self._dtype)
         phi[0]  = 1.0
