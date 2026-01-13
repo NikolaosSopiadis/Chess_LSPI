@@ -25,15 +25,15 @@ class LegalMoveCache:
     def __init__(self, max_size: int = 100_000):
         self.max_size = int(max_size)
         self.cache: "OrderedDict[int, tuple[Move, ...]]" = OrderedDict()
-        self.hits = 0
-        self.misses = 0
+        # self.hits = 0
+        # self.misses = 0
 
     def get(self, zkey: int) -> Optional[tuple[Move, ...]]:
         v = self.cache.get(zkey)
         if v is None:
-            self.misses += 1
+            # self.misses += 1
             return None
-        self.hits += 1
+        # self.hits += 1
         return v
 
     def put(self, zkey: int, moves: list[Move]) -> tuple[Move, ...]:

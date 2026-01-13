@@ -369,7 +369,7 @@ def solve_lspi(
         if pool is not None:
             pool.close()
             
-    print(f"Move cache: hits={move_cache.hits}, misses={move_cache.misses}, hit rate={move_cache.hits / max(1, move_cache.hits + move_cache.misses):.3%}")
+    # print(f"Move cache: hits={move_cache.hits}, misses={move_cache.misses}, hit rate={move_cache.hits / max(1, move_cache.hits + move_cache.misses):.3%}")
 
     return w
 
