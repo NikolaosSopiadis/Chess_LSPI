@@ -61,6 +61,10 @@ _ZRAND = random.Random(0xC0FFEE1234)  # deterministic
 def _rand64() -> int:
     return _ZRAND.getrandbits(64)
 
+def _file(sq: int) -> int: return sq & 7
+def _rank(sq: int) -> int: return sq >> 3
+def _idx(f: int, r: int) -> int: return f | (r << 3)
+
 class Board:
 
     NO_PIECE: int    = 0
@@ -137,19 +141,19 @@ class Board:
     def _has_castling_rights(self, mask: int) -> bool:
         return (self._castling_rights & mask) != 0
     
-    def idx_to_f_r(self, idx: int) -> tuple[int, int]:
-        r: int = idx // self._files
-        f: int = idx % self._files
-        return f, r
+    # def idx_to_f_r(self, idx: int) -> tuple[int, int]:
+    #     r: int = idx // self._files
+    #     f: int = idx % self._files
+    #     return f, r
 
-    def get_idx(self, f: int, r: int) -> int:
-        return f + (r * self._files)
+    # def get_idx(self, f: int, r: int) -> int:
+    #     return f + (r * self._files)
 
     def _gen_pawn_moves(self, src: int) -> list[Move]:
         moves: list[Move] = []
         piece: int        = self._board[src]
         white: bool       = IS_WHITE[piece]
-        f_src, r_src      = self.idx_to_f_r(src)
+        f_src, r_src      = _file(src), _rank(src)
         rank_direction    = 1 if white else -1
         promotion_rank    = self._ranks - 1 if white else 0
         start_rank        = 1 if white else self._ranks - 2
@@ -157,7 +161,7 @@ class Board:
         # One forward
         r1: int = r_src + rank_direction
         if 0 <= r1 < self._ranks:
-            dst = self.get_idx(f_src, r1)
+            dst = _idx(f_src, r1)
             if self._board[dst] == p.NONE:
                 if r1 == promotion_rank:
                     for to in (PROMO_KNIGHT, PROMO_BISHOP, PROMO_ROOK, PROMO_QUEEN):
@@ -167,9 +171,9 @@ class Board:
 
                 # Two forward
                 if r_src == start_rank:
-                    mid: int = self.get_idx(f_src, r_src + rank_direction)
+                    mid: int = _idx(f_src, r_src + rank_direction)
                     r2 = r_src + 2 * rank_direction
-                    dst2 = self.get_idx(f_src, r2)
+                    dst2 = _idx(f_src, r2)
                     if self._board[mid] == p.NONE and self._board[dst2] == p.NONE:
                         self._push_move(moves, src, dst2, double_pawn=True)
 
@@ -179,7 +183,7 @@ class Board:
             r1: int = r_src + rank_direction
             
             if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
-                dst: int = self.get_idx(f1, r1)
+                dst: int = _idx(f1, r1)
                 target_piece: int = self._board[dst]
                 if self._is_enemy(target_piece, white):
                     if r1 == promotion_rank:
@@ -198,7 +202,7 @@ class Board:
         moves: list[Move] = []
         piece: int        = self._board[src]
         white: bool       = IS_WHITE[piece]
-        f_src, r_src      = self.idx_to_f_r(src)
+        f_src, r_src      = _file(src), _rank(src)
 
         # Move 1 square in all
         for dr in (-1, 0, 1):
@@ -209,16 +213,16 @@ class Board:
                 f = f_src + df
                 r = r_src + dr
                 if 0 <= f < self._files and 0 <= r < self._ranks:
-                    dst = self.get_idx(f, r)
+                    dst = _idx(f, r)
                     target_piece = self._board[dst]
                     if target_piece == p.NONE or self._is_enemy(target_piece, white):
                         self._push_move(moves, src, dst)
 
         # Castling (obstructions only, checks and pins will be calculated later)
-        queenside_dst = self.get_idx(2, r_src)
-        kingside_dst  = self.get_idx(self._files - 2, r_src)
+        queenside_dst = _idx(2, r_src)
+        kingside_dst  = _idx(self._files - 2, r_src)
         
-        start_king_sq = self.get_idx(4, 0 if white else 7)
+        start_king_sq = _idx(4, 0 if white else 7)
         if src != start_king_sq:
             return moves  # no castling unless king is on e1/e8
 
@@ -227,24 +231,24 @@ class Board:
         if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE if white else self.BLACK_CASTLE_QUEENSIDE):
             obstructed = False
             for f in range(f_src - 1, 0, -1):
-                castle_path = self.get_idx(f, r_src)
+                castle_path = _idx(f, r_src)
                 if self._board[castle_path] != p.NONE:
                     obstructed = True
                     break
             # queenside rook must exist
-            qs_rook_sq = self.get_idx(0, r_src)
+            qs_rook_sq = _idx(0, r_src)
             if self._board[qs_rook_sq] == rook_piece and not obstructed:
                 moves.append(Move.castle(src, queenside_dst))
 
         if self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE if white else self.BLACK_CASTLE_KINGSIDE):
             obstructed = False
             for f in range(f_src + 1, self._files - 1):
-                castle_path = self.get_idx(f, r_src)
+                castle_path = _idx(f, r_src)
                 if self._board[castle_path] != p.NONE:
                     obstructed = True
                     break
             # kingside rook must exist
-            ks_rook_sq = self.get_idx(self._files - 1, r_src)
+            ks_rook_sq = _idx(self._files - 1, r_src)
             if self._board[ks_rook_sq] == rook_piece and not obstructed:
                 moves.append(Move.castle(src, kingside_dst))
         
@@ -260,7 +264,7 @@ class Board:
         piece: int        = self._board[src]
         white: bool       = IS_WHITE[piece]
 
-        f0, r0 = self.idx_to_f_r(src)
+        f0, r0 = _file(src), _rank(src)
         jumps  = ((-1,+2), (+1,+2), (-2,+1), (+2,+1),
                   (-2,-1), (+2,-1), (-1,-2), (+1,-2))
 
@@ -268,7 +272,7 @@ class Board:
             f: int = f0 + df
             r: int = r0 + dr
             if 0 <= f < self._files and 0 <= r < self._ranks:
-                dst: int = self.get_idx(f, r)
+                dst: int = _idx(f, r)
                 target_piece: int = self._board[dst]
                 if target_piece == p.NONE or self._is_enemy(target_piece, white):
                     self._push_move(moves, src, dst)
@@ -279,10 +283,10 @@ class Board:
     def _gen_ray_into(self, moves: list[Move], src: int, df: int, dr: int) -> None:
         board: Sequence[int] = self._board
         white: bool          = IS_WHITE[board[src]]
-        f, r                 = self.idx_to_f_r(src)
+        f, r                 = _file(src), _rank(src)
         files = self._files
         ranks = self._ranks
-        get_idx = self.get_idx
+        get_idx = _idx
 
         while True:
             f += df; r += dr
@@ -369,12 +373,12 @@ class Board:
             if m.check_flag(F_CASTLE):
                 if self.is_square_attacked(king_sq0, by_white=not side):
                     continue
-                f_src, r_src = self.idx_to_f_r(m.src_square)
-                f_dst, _     = self.idx_to_f_r(m.dst_square)
+                f_src, r_src = _file(m.src_square), _rank(m.src_square)
+                f_dst, _     = _file(m.dst_square), _rank(m.dst_square)
                 if f_dst > f_src:  # kingside
-                    through = [self.get_idx(f_src + 1, r_src), self.get_idx(f_src + 2, r_src)]
+                    through = [_idx(f_src + 1, r_src), _idx(f_src + 2, r_src)]
                 else:              # queenside
-                    through = [self.get_idx(f_src - 1, r_src), self.get_idx(f_src - 2, r_src)]
+                    through = [_idx(f_src - 1, r_src), _idx(f_src - 2, r_src)]
                 if any(self.is_square_attacked(sq, by_white=not side) for sq in through):
                     continue
 
@@ -419,10 +423,9 @@ class Board:
         board = self._board
         files = self._files
         ranks = self._ranks
-        get_idx = self.get_idx
-        idx_to_f_r = self.idx_to_f_r
-    
-        f_src, r_src = idx_to_f_r(square)
+        get_idx = _idx
+
+        f_src, r_src = _file(square), _rank(square)
         board: Sequence[int] = board
 
         # --- Pawn attacks ---
@@ -552,15 +555,15 @@ class Board:
                 self._z_xor_piece(captured_piece, dst) 
             
         if move.check_flag(F_CASTLE):
-            f_src, r_src = self.idx_to_f_r(src)
-            f_dst, _ = self.idx_to_f_r(dst)
+            f_src, r_src = _file(src), _rank(src)
+            f_dst        = _file(dst)
             # kingside: dst file is 6; queenside: dst file is 2
             if f_dst > f_src:
-                rook_src = self.get_idx(self._files - 1, r_src)
-                rook_dst = self.get_idx(self._files - 3, r_src)
+                rook_src = _idx(self._files - 1, r_src)
+                rook_dst = _idx(self._files - 3, r_src)
             else:
-                rook_src = self.get_idx(0, r_src)
-                rook_dst = self.get_idx(3, r_src)
+                rook_src = _idx(0, r_src)
+                rook_dst = _idx(3, r_src)
             undo.rook_src, undo.rook_dst = rook_src, rook_dst
             self._board[rook_dst] = self._board[rook_src]
             self._board[rook_src] = p.NONE
@@ -576,7 +579,7 @@ class Board:
             else:
                 self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE | self.BLACK_CASTLE_QUEENSIDE)
         elif t == p.ROOK:
-            f_src, r_src = self.idx_to_f_r(src)
+            f_src, r_src = _file(src), _rank(src)
             if IS_WHITE[moved_piece]:
                 if f_src == 0 and r_src == 0: self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
                 if f_src == 7 and r_src == 0: self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
@@ -585,7 +588,7 @@ class Board:
                 if f_src == 7 and r_src == 7: self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
 
         if PTYPE[undo.captured_piece] == p.ROOK:
-            f_dst, r_dst = self.idx_to_f_r(dst)
+            f_dst, r_dst = _file(dst), _rank(dst)
             if IS_WHITE[undo.captured_piece]:
                 if f_dst == 0 and r_dst == 0: self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
                 if f_dst == 7 and r_dst == 0: self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
@@ -595,9 +598,9 @@ class Board:
 
         # double pawn sets en passant target
         if move.check_flag(F_DOUBLE_PAWN):
-            f_src, r_src = self.idx_to_f_r(src)
-            _, r_dst = self.idx_to_f_r(dst)
-            self._en_passant_target = self.get_idx(f_src, (r_src + r_dst) // 2)
+            f_src, r_src = _file(src), _rank(src)
+            _, r_dst = _file(dst), _rank(dst)
+            self._en_passant_target = _idx(f_src, (r_src + r_dst) // 2)
 
         # apply main piece move
         self._board[dst] = self._board[src]
@@ -750,10 +753,10 @@ class Board:
         r = int(sq[1]) - 1
         if not (0 <= f < 8 and 0 <= r < 8):
             raise ValueError(f"Bad square: {sq}")
-        return self.get_idx(f, r)
+        return _idx(f, r)
 
     def idx_to_algebraic(self, idx: int) -> str:
-        f, r = self.idx_to_f_r(idx)
+        f, r = _file(idx), _rank(idx)
         return f"{chr(ord('a') + f)}{r + 1}"
 
     def set_fen(self, fen: str) -> None:
@@ -784,7 +787,7 @@ class Board:
                     raise ValueError(f"Bad FEN char: {ch}")
                 if f >= 8:
                     raise ValueError("Bad FEN row overflow")
-                idx = self.get_idx(f, r)
+                idx = _idx(f, r)
                 piece = self._FEN_TO_PIECE[ch]
                 self._board[idx] = piece
                 if piece == p.WHITE_KING:
@@ -820,7 +823,7 @@ class Board:
             empties = 0
             out = []
             for f in range(8):
-                idx = self.get_idx(f, r)
+                idx = _idx(f, r)
                 piece = int(self._board[idx])
                 if piece == p.NONE:
                     empties += 1
@@ -860,7 +863,7 @@ class Board:
         if ep is None:
             return None
 
-        f_ep, r_ep = self.idx_to_f_r(ep)
+        f_ep, r_ep = _file(ep), _rank(ep)
 
         # Side to move must have a pawn that can capture onto ep square.
         if self._is_white_to_move:
@@ -871,7 +874,7 @@ class Board:
             for df in (-1, 1):
                 f_from = f_ep + df
                 if 0 <= f_from < 8:
-                    src = self.get_idx(f_from, r_from)
+                    src = _idx(f_from, r_from)
                     if self._board[src] == p.WHITE_PAWN:
                         return f_ep
         else:
@@ -882,7 +885,7 @@ class Board:
             for df in (-1, 1):
                 f_from = f_ep + df
                 if 0 <= f_from < 8:
-                    src = self.get_idx(f_from, r_from)
+                    src = _idx(f_from, r_from)
                     if self._board[src] == p.BLACK_PAWN:
                         return f_ep
 
@@ -947,7 +950,7 @@ class Board:
                 knights += 1
             elif t == p.BISHOP:
                 bishops += 1
-                f, r = self.idx_to_f_r(sq)
+                f, r = _file(sq), _rank(sq)
                 bishop_colors.append((f + r) & 1)
             else:
                 # should not happen in normal chess, but be conservative
