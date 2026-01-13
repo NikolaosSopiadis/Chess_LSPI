@@ -575,10 +575,10 @@ def _worker_loop_pinned(
 
         out_q.put((iter_idx, A, b))
 
-# do not include fullmove number in fen key for better cache hits
+# do not include fullmove or halfmove in fen key for better cache hits
 def fen_key(fen: str) -> str:
     parts = fen.split()
-    return " ".join(parts[:5])  # placement, active, castling, ep, halfmove
+    return " ".join(parts[:4])  # placement, active, castling, ep
 
 
 class PinnedShardPool:
