@@ -15,6 +15,7 @@ import numpy as np
 import numpy.typing as npt
 
 Float64Array = npt.NDArray[np.float64]
+Float32Array = npt.NDArray[np.float32]
 
 from chess_core.board import Board
 from chess_rl.features.base import FeatureExtractor
@@ -31,7 +32,7 @@ except Exception:
     orjson = None  # type: ignore
 
 
-CheckpointCB = Callable[[int, npt.NDArray[np.float64], float], None]
+CheckpointCB = Callable[[int, Float64Array, float], None]
 
 @dataclass(frozen=True)
 class LSPIConfig:
@@ -51,7 +52,7 @@ class SamplesMem:
 @dataclass
 class _ActionPhiCacheEntry:
     white_to_move: bool
-    phis: npt.NDArray[np.float32]   # (M, d) float32 to save RAM
+    phis: Float32Array   # (M, d) float32 to save RAM
 
 
 def load_samples_mem(
@@ -440,7 +441,7 @@ def _worker_loop_pinned(
     # fen -> _ActionPhiCacheEntry, LRU via OrderedDict
     lru: "OrderedDict[str, _ActionPhiCacheEntry]" = OrderedDict()
 
-    def best_phi_next_cached_local(fen: str, w: Float64Array) -> npt.NDArray[np.float32]:
+    def best_phi_next_cached_local(fen: str, w32: Float32Array) -> Float32Array:
         entry = lru.get(fen)
         if entry is None:
             b_tmp.init_board(fen)
@@ -461,7 +462,6 @@ def _worker_loop_pinned(
             # mark as most recently used
             lru.move_to_end(fen)
 
-        w32 = w.astype(np.float32, copy=False)   # inside message loop after receiving w
         scores = entry.phis @ w32
         idx = int(np.argmax(scores) if entry.white_to_move else np.argmin(scores))
         # return np.asarray(entry.phis[idx], dtype=np.float64)
@@ -473,6 +473,7 @@ def _worker_loop_pinned(
             return
 
         iter_idx, w = msg
+        w32 = w.astype(np.float32)   # cast from float64 to float32
         d = feats.spec.dim
         A = np.zeros((d, d), dtype=np.float64)
         b = np.zeros((d,), dtype=np.float64)
@@ -498,7 +499,7 @@ def _worker_loop_pinned(
 
                         fen = samples_mem.fen_next[start + j]
                         # write float32 -> float64 row (no allocation)
-                        Phi_next[j] = best_phi_next_cached_local(fen, w)
+                        Phi_next[j] = best_phi_next_cached_local(fen, w32)
                 else:
                     for j in range(B):
                         if done_vec[j]:
@@ -544,8 +545,7 @@ def _worker_loop_pinned(
                     else:
                         fen = str(rec["fen_next"])
                         if action_cache:
-                            # float32 view -> copied into float64 row
-                            Phi_next_buf[filled] = best_phi_next_cached_local(fen, w)
+                            Phi_next_buf[filled] = best_phi_next_cached_local(fen, w32)
                         else:
                             b_tmp.init_board(fen)
                             Phi_next_buf[filled] = greedy_choice(b_tmp, w, feats).phi
