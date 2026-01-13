@@ -5,6 +5,8 @@ import random
 from chess_core.piece import Piece as p
 from chess_core.move import F_CAPTURE, F_CASTLE, F_DOUBLE_PAWN, F_EN_PASSANT, F_PROMOTION, PROMO_BISHOP, PROMO_KNIGHT, PROMO_NONE, PROMO_QUEEN, PROMO_ROOK, Move
 
+DEBUG_MAT = False
+
 # Perforamance TODO:
 #      - Stop calling is_square_attacked() twice for castling legality check
 #      - BIG: replace Move objects with a packed integer encoding for faster move generation and lookup
@@ -191,6 +193,18 @@ _ZRAND = random.Random(0xC0FFEE1234)  # deterministic
 def _rand64() -> int:
     return _ZRAND.getrandbits(64)
 
+# Zobrist hashing
+_Z_PIECES = (
+    p.WHITE_PAWN, p.WHITE_KNIGHT, p.WHITE_BISHOP, p.WHITE_ROOK, p.WHITE_QUEEN, p.WHITE_KING,
+    p.BLACK_PAWN, p.BLACK_KNIGHT, p.BLACK_BISHOP, p.BLACK_ROOK, p.BLACK_QUEEN, p.BLACK_KING,
+)
+_ZPI      = {pc: i for i, pc in enumerate(_Z_PIECES)}
+_Z_PIECE  = [[_rand64() for _ in range(64)] for _ in range(len(_Z_PIECES))]
+_Z_CASTLE = [_rand64() for _ in range(16)]  # index by castling_rights bitmask (0..15)
+_Z_EPFILE = [_rand64() for _ in range(8)]
+_Z_SIDE   = _rand64()
+
+
 def _file(sq: int) -> int: return sq & 7
 def _rank(sq: int) -> int: return sq >> 3
 def _idx(f: int, r: int) -> int: return f + (r << 3)
@@ -206,11 +220,6 @@ class Board:
     BLACK_CASTLE_KINGSIDE: int  = 1<<2 
     BLACK_CASTLE_QUEENSIDE: int = 1<<3
     
-    _Z_PIECES = (
-        p.WHITE_PAWN, p.WHITE_KNIGHT, p.WHITE_BISHOP, p.WHITE_ROOK, p.WHITE_QUEEN, p.WHITE_KING,
-        p.BLACK_PAWN, p.BLACK_KNIGHT, p.BLACK_BISHOP, p.BLACK_ROOK, p.BLACK_QUEEN, p.BLACK_KING,
-    )
-    _ZPI = {pc: i for i, pc in enumerate(_Z_PIECES)}
     
     def __init__(self, ranks=8, files=8):
         if ranks != 8 or files != 8:
@@ -234,10 +243,6 @@ class Board:
         self._is_white_to_move: bool = True
         self._halfmove_clock: int = 0 # for fifty-move rule
         
-        self._z_piece = [[_rand64() for _ in range(self._grid_size)] for _ in range(len(self._Z_PIECES))]
-        self._z_castle = [_rand64() for _ in range(16)]  # index by castling_rights bitmask (0..15)
-        self._z_ep_file = [_rand64() for _ in range(8)]
-        self._z_side = _rand64()
 
         self._zkey: int = 0
         
@@ -617,12 +622,12 @@ class Board:
         # --- Zobrist: remove old EP / old castling / old side ---
         old_epf = self._ep_file_for_hash()
         if old_epf is not None:
-            self._zkey ^= self._z_ep_file[old_epf]
+            self._zkey ^= _Z_EPFILE[old_epf]
 
-        self._zkey ^= self._z_castle[self._castling_rights & 0xF]
+        self._zkey ^= _Z_CASTLE[self._castling_rights & 0xF]
 
         # side to move toggles every ply
-        self._zkey ^= self._z_side
+        self._zkey ^= _Z_SIDE
 
         # reset en passant by default
         self._en_passant_target = None
@@ -752,14 +757,17 @@ class Board:
         self._is_white_to_move = not self._is_white_to_move
 
         # --- Zobrist: add new castling / new EP (must use new side) ---
-        self._zkey ^= self._z_castle[self._castling_rights & 0xF]
+        self._zkey ^= _Z_CASTLE[self._castling_rights & 0xF]
         new_epf = self._ep_file_for_hash()  # now uses the flipped side
         if new_epf is not None:
-            self._zkey ^= self._z_ep_file[new_epf]
+            self._zkey ^= _Z_EPFILE[new_epf]
 
         # record position repetition (now the key matches the real position)
         self._rep_stack.append(self._zkey)
         self._rep_counts[self._zkey] = self._rep_counts.get(self._zkey, 0) + 1
+
+        if DEBUG_MAT:
+            self._debug_assert_mat_ok()
 
         return undo
 
@@ -823,6 +831,9 @@ class Board:
         
         # recompute Zobrist key
         self._zkey = undo.prev_zkey
+
+        if DEBUG_MAT:
+            self._debug_assert_mat_ok()
 
     def get_all_legal_moves(self) -> list[Move]:
         board = self._board
@@ -1042,26 +1053,23 @@ class Board:
     def _recompute_zobrist(self) -> int:
         z = 0
         board = self._board
-        z_piece = self._z_piece
-        zpi = self._ZPI
 
         for sq in range(self._grid_size):
             pc = int(board[sq])
             if pc != p.NONE:
-                z ^= z_piece[zpi[pc]][sq]
+                z ^= _Z_PIECE[_ZPI[pc]][sq]
 
-        z ^= self._z_castle[self._castling_rights & 0xF]
+        z ^= _Z_CASTLE[self._castling_rights & 0xF]
 
         epf = self._ep_file_for_hash()
         if epf is not None:
-            z ^= self._z_ep_file[epf]
-
+            z ^= _Z_EPFILE[epf]
         if self._is_white_to_move:
-            z ^= self._z_side  # convention: side key means "white to move"
+            z ^= _Z_SIDE  # convention: side key means "white to move"
         return z
 
     def _z_xor_piece(self, piece: int, sq: int) -> None:
-        self._zkey ^= self._z_piece[self._ZPI[piece]][sq]
+        self._zkey ^= _Z_PIECE[_ZPI[piece]][sq]
 
     def is_threefold_repetition(self) -> bool:
         return self._rep_counts.get(self._zkey, 0) >= 3
@@ -1172,6 +1180,15 @@ class Board:
             if i != -1:
                 m[i] += 1
         self._mat = m
+        
+    def _debug_assert_mat_ok(self) -> None:
+        m = [0,0,0,0,0, 0,0,0,0,0]
+        for pc in self._board:
+            i = MAT_INDEX[int(pc)]
+            if i != -1:
+                m[i] += 1
+        assert m == self._mat, (self._mat, m)
+
 
 def _on_board(sq: int) -> bool:
     return 0 <= sq < 64

@@ -18,7 +18,7 @@ Float64Array = npt.NDArray[np.float64]
 
 from chess_core.board import Board
 from chess_rl.features.base import FeatureExtractor
-from chess_rl.policy.greedy import greedy_choice
+from chess_rl.policy.greedy import LegalMoveCache, greedy_choice
 
 try:
     from tqdm.auto import tqdm  # type: ignore
@@ -132,6 +132,7 @@ def _accumulate_A_b(
     show_progress: bool,
     total_hint: Optional[int],
     desc: str,
+    move_cache: Optional[LegalMoveCache] = None
 ) -> tuple[Float64Array, Float64Array]:
     d = feats.spec.dim
     A: Float64Array = np.zeros((d, d), dtype=np.float64)
@@ -183,7 +184,7 @@ def _accumulate_A_b(
             Phi_next_buf[filled].fill(0.0)
         else:
             b_next.init_board(str(rec["fen_next"]))
-            Phi_next_buf[filled] = greedy_choice(b_next, w, feats).phi
+            Phi_next_buf[filled] = greedy_choice(b_next, w, feats, move_cache).phi
 
         filled += 1
         n += 1
@@ -222,6 +223,7 @@ def _accumulate_A_b_mem(
     *,
     show_progress: bool,
     desc: str,
+    move_cache: Optional[LegalMoveCache] = None
 ) -> tuple[Float64Array, Float64Array]:
     d = feats.spec.dim
     A: Float64Array = np.zeros((d, d), dtype=np.float64)
@@ -242,7 +244,7 @@ def _accumulate_A_b_mem(
             phi_next = np.zeros(d, dtype=np.float64)
         else:
             b_next.init_board(samples.fen_next[i])
-            phi_next = greedy_choice(b_next, w, feats).phi  # <- reuse best phi
+            phi_next = greedy_choice(b_next, w, feats, move_cache).phi  # <- reuse best phi
 
         diff = phi - cfg.gamma * phi_next
 
@@ -294,6 +296,9 @@ def solve_lspi(
     # --- create the pool once ---
     pool: Optional[PinnedShardPool] = None
     n_workers = workers or max(1, (os.cpu_count() or 1) - 1)
+    
+    # create move cache
+    move_cache: LegalMoveCache = LegalMoveCache(max_size=250_000)
 
     try:
         if shard_paths:
@@ -302,9 +307,10 @@ def solve_lspi(
                 feature_name,
                 cfg,
                 workers=n_workers,
-                preload=preload,       # preload shards inside each worker (the useful preload)
-                action_cache=True,    # toggle later
+                preload=preload,
+                action_cache=True,
                 cache_max=200_000,
+                move_cache_max=250_000,
             )
 
         for it in range(cfg.max_iters):
@@ -320,6 +326,7 @@ def solve_lspi(
                     samples_mem, w, feats, cfg,
                     show_progress=verbose,
                     desc=f"LSPI accumulate mem {it+1}/{cfg.max_iters}",
+                    move_cache=move_cache,
                 )
             else:
                 A, bvec = _accumulate_A_b(
@@ -327,6 +334,7 @@ def solve_lspi(
                     show_progress=verbose,
                     total_hint=total_hint,
                     desc=f"LSPI accumulate {it+1}/{cfg.max_iters}",
+                    move_cache=move_cache,
                 )
 
             A_reg = A + cfg.reg * I
@@ -359,6 +367,8 @@ def solve_lspi(
     finally:
         if pool is not None:
             pool.close()
+            
+    print(f"Move cache: hits={move_cache.hits}, misses={move_cache.misses}, hit rate={move_cache.hits / max(1, move_cache.hits + move_cache.misses):.3%}")
 
     return w
 
@@ -408,12 +418,14 @@ def _worker_loop_pinned(
     preload: bool,
     action_cache: bool,
     cache_max: int,
+    move_cache_max: int = 250_000,
 ) -> None:
     # imports inside subprocess
     from chess_rl.features.registry import get as get_features
 
     feats = get_features(feature_name)
     b_tmp = Board()
+    move_cache = LegalMoveCache(max_size=move_cache_max)
 
     CHUNK = 4096  # tune: 2048/4096/8192
     Phi_next_buf = np.empty((CHUNK, feats.spec.dim), dtype=np.float64)
@@ -493,7 +505,7 @@ def _worker_loop_pinned(
                             continue
                         fen = samples_mem.fen_next[start + j]
                         b_tmp.init_board(fen)
-                        Phi_next[j] = greedy_choice(b_tmp, w, feats).phi
+                        Phi_next[j] = greedy_choice(b_tmp, w, feats, move_cache).phi
 
                 # BLAS update
                 # diff_tmp[:B] = Phi - gamma*Phi_next
@@ -553,14 +565,15 @@ def _worker_loop_pinned(
 class PinnedShardPool:
     def __init__(
         self,
-        shard_paths: list[str],
-        feature_name: str,
-        cfg: LSPIConfig,
+        shard_paths:    list[str],
+        feature_name:   str,
+        cfg:            LSPIConfig,
         *,
-        workers: int,
-        preload: bool = True,
-        action_cache: bool = False,
-        cache_max: int = 50_000,
+        workers:        int,
+        preload:        bool = True,
+        action_cache:   bool = False,
+        cache_max:      int = 50_000,
+        move_cache_max: int = 250_000,
     ) -> None:
         self.feature_name = feature_name
         self.cfg = cfg
@@ -568,6 +581,7 @@ class PinnedShardPool:
         self.preload = preload
         self.action_cache = action_cache
         self.cache_max = cache_max
+        self.move_cache_max = move_cache_max
 
         shard_paths = sorted(shard_paths)
         self.buckets: list[list[str]] = [shard_paths[i::workers] for i in range(workers)]
@@ -585,6 +599,7 @@ class PinnedShardPool:
                     preload=preload,
                     action_cache=action_cache,
                     cache_max=cache_max,
+                    move_cache_max=move_cache_max
                 ),
                 daemon=True,
             )
@@ -599,7 +614,8 @@ class PinnedShardPool:
             if p.is_alive():
                 p.kill()
 
-    def accumulate(self, w: Float64Array, iter_idx: int, *, desc: str, verbose: bool) -> tuple[Float64Array, Float64Array]:
+    def accumulate(self, w: Float64Array,iter_idx: int, *, 
+                   desc: str, verbose: bool) -> tuple[Float64Array, Float64Array]:
         # send work
         for q in self.in_queues:
             q.put((iter_idx, w))

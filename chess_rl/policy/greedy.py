@@ -1,8 +1,9 @@
 # chess_rl/policy/greedy.py
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -20,11 +21,46 @@ class GreedyChoice:
     phi: Float64Array
     score: float
 
+class LegalMoveCache:
+    def __init__(self, max_size: int = 100_000):
+        self.max_size = int(max_size)
+        self.cache: "OrderedDict[int, tuple[Move, ...]]" = OrderedDict()
+        self.hits = 0
+        self.misses = 0
 
-def greedy_choice(board: Board, w: Float64Array, feats: FeatureExtractor) -> GreedyChoice:
-    moves: list[Move] = board.get_all_legal_moves()
+    def get(self, zkey: int) -> Optional[tuple[Move, ...]]:
+        v = self.cache.get(zkey)
+        if v is None:
+            self.misses += 1
+            return None
+        self.hits += 1
+        return v
+
+    def put(self, zkey: int, moves: list[Move]) -> tuple[Move, ...]:
+        t = tuple(moves)
+        self.cache[zkey] = t
+        self.cache.move_to_end(zkey)
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)
+        return t
+
+
+def greedy_choice(board: Board, w: Float64Array, feats: FeatureExtractor,
+                  move_cache: Optional[LegalMoveCache] = None) -> GreedyChoice:
+    z = board._zkey
+    moves: Sequence[Move] 
+
+    if move_cache is not None:
+        cached = move_cache.get(z)
+        if cached is None:
+            cached = move_cache.put(z, board.get_all_legal_moves())
+        moves = cached
+    else:
+        moves = board.get_all_legal_moves()
+
     if not moves:
         raise ValueError("No legal moves")
+        
     if w.ndim != 1:
         raise ValueError("w must be 1D")
 
