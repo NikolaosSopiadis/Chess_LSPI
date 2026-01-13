@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import random
 
 from chess_core.piece import Piece as p
-from chess_core.move import Move, Promotion, MoveFlag
+from chess_core.move import F_CAPTURE, F_CASTLE, F_DOUBLE_PAWN, F_EN_PASSANT, F_PROMOTION, PROMO_BISHOP, PROMO_KNIGHT, PROMO_NONE, PROMO_QUEEN, PROMO_ROOK, Move
 
 # TODO:
 #       - Zobrist hashing for position repetition detection
@@ -151,7 +151,7 @@ class Board:
             dst = self.get_idx(f_src, r1)
             if self._board[dst] == p.NONE:
                 if r1 == promotion_rank:
-                    for to in (Promotion.KNIGHT, Promotion.BISHOP, Promotion.ROOK, Promotion.QUEEN):
+                    for to in (PROMO_KNIGHT, PROMO_BISHOP, PROMO_ROOK, PROMO_QUEEN):
                         self._push_move(moves, src, dst, promotion=to)
                 else:
                     self._push_move(moves, src, dst)   
@@ -174,7 +174,7 @@ class Board:
                 target_piece: int = self._board[dst]
                 if self._is_enemy(target_piece, white):
                     if r1 == promotion_rank:
-                        for to in (Promotion.KNIGHT, Promotion.BISHOP, Promotion.ROOK, Promotion.QUEEN):
+                        for to in (PROMO_KNIGHT, PROMO_BISHOP, PROMO_ROOK, PROMO_QUEEN):
                             self._push_move(moves, src, dst, promotion=to)
                     else:
                         self._push_move(moves, src, dst)   
@@ -357,7 +357,7 @@ class Board:
 
         for m in pseudo:
             # Castling extra restriction: not out of / through / into check
-            if m.check_flag(MoveFlag.CASTLE):
+            if m.check_flag(F_CASTLE):
                 if self.is_square_attacked(king_sq0, by_white=not side):
                     continue
                 f_src, r_src = self.idx_to_f_r(m.src_square)
@@ -383,7 +383,7 @@ class Board:
         return self._board
 
     def _push_move(self, moves: list[Move], src: int, dst: int,
-                   promotion: Promotion = Promotion.NONE,
+                   promotion: int = PROMO_NONE,
                    en_passant: bool = False, castle: bool = False,
                    double_pawn: bool = False) -> None:
         captured: int = self._board[dst] # For en passant, calculate capture in make_move
@@ -394,7 +394,7 @@ class Board:
             # captured pawn is behind dst
             src_piece = int(self._board[src])
             cap = p.BLACK_PAWN if p.is_white(src_piece) else p.WHITE_PAWN
-            moves.append(Move(src, dst, MoveFlag.EN_PASSANT | MoveFlag.CAPTURE, Promotion.NONE, cap))
+            moves.append(Move(src, dst, F_EN_PASSANT | F_CAPTURE, PROMO_NONE, cap))
         elif promotion:
             moves.append(Move.promotion_to(src, dst, promotion, captured))
         elif double_pawn:
@@ -518,7 +518,7 @@ class Board:
 
         # halfmove clock (for 50-move draw)
         # reset on pawn move or any capture
-        if p.piece_type(moved_piece) == p.PAWN or move.check_flag(MoveFlag.CAPTURE):
+        if p.piece_type(moved_piece) == p.PAWN or move.check_flag(F_CAPTURE):
             self._halfmove_clock = 0
         else:
             self._halfmove_clock += 1
@@ -527,7 +527,7 @@ class Board:
         self._z_xor_piece(moved_piece, src)
 
         # --- special moves ---
-        if move.check_flag(MoveFlag.EN_PASSANT):
+        if move.check_flag(F_EN_PASSANT):
             # capture pawn behind destination
             if p.is_white(moved_piece):
                 cap_sq = dst - self._files
@@ -542,7 +542,7 @@ class Board:
             if captured_piece != p.NONE:
                 self._z_xor_piece(captured_piece, dst) 
             
-        if move.check_flag(MoveFlag.CASTLE):
+        if move.check_flag(F_CASTLE):
             f_src, r_src = self.idx_to_f_r(src)
             f_dst, _ = self.idx_to_f_r(dst)
             # kingside: dst file is 6; queenside: dst file is 2
@@ -585,7 +585,7 @@ class Board:
                 if f_dst == 7 and r_dst == 7: self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
 
         # double pawn sets en passant target
-        if move.check_flag(MoveFlag.DOUBLE_PAWN):
+        if move.check_flag(F_DOUBLE_PAWN):
             f_src, r_src = self.idx_to_f_r(src)
             _, r_dst = self.idx_to_f_r(dst)
             self._en_passant_target = self.get_idx(f_src, (r_src + r_dst) // 2)
@@ -602,13 +602,13 @@ class Board:
                 self._black_king_sq = dst
 
         # promotion replaces piece on dst
-        if move.check_flag(MoveFlag.PROMOTION):
+        if move.check_flag(F_PROMOTION):
             color = p.piece_color(moved_piece)
             promo_t = {
-                Promotion.QUEEN:  p.QUEEN,
-                Promotion.ROOK:   p.ROOK,
-                Promotion.BISHOP: p.BISHOP,
-                Promotion.KNIGHT: p.KNIGHT,
+                PROMO_QUEEN:  p.QUEEN,
+                PROMO_ROOK:   p.ROOK,
+                PROMO_BISHOP: p.BISHOP,
+                PROMO_KNIGHT: p.KNIGHT,
             }.get(move.promotion)
             if promo_t is None:
                 raise AssertionError("Promotion flag set but invalid promotion piece")
@@ -666,7 +666,7 @@ class Board:
             self._board[dst] = p.NONE
 
         # undo castling rook move
-        if move.check_flag(MoveFlag.CASTLE):
+        if move.check_flag(F_CASTLE):
             self._board[undo.rook_src] = self._board[undo.rook_dst]
             self._board[undo.rook_dst] = p.NONE
             

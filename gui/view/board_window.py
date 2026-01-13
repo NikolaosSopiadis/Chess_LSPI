@@ -4,7 +4,7 @@ import pygame as pg
 import pygame_gui as pgg
 
 from chess_core.piece import Piece as p
-from chess_core.move import Move, Promotion
+from chess_core.move import PROMO_BISHOP, PROMO_KNIGHT, PROMO_NONE, PROMO_QUEEN, PROMO_ROOK, Move
 
 # type-only, no runtime imports (to avoid circular dependency)
 if TYPE_CHECKING:
@@ -438,7 +438,7 @@ class BoardWindow:
     def _enter_promotion_mode(self, src: int, dst: int) -> None:
         # Ask controller for legal promotion candidates to that dst
         promos: list[Move] = [m for m in self._ctrl.get_moves_to(src, dst)
-                if m.promotion != Promotion.NONE]
+                if m.promotion != PROMO_NONE]
         if not promos:
             return  # nothing to do
 
@@ -446,10 +446,10 @@ class BoardWindow:
         self._promotion_idx = dst
         # Optional: sort to your preferred order (Q, R, B, N)
         order = {
-            Promotion.QUEEN: 0,
-            Promotion.KNIGHT:1,
-            Promotion.ROOK:  2,
-            Promotion.BISHOP:3,
+            PROMO_QUEEN: 0,
+            PROMO_KNIGHT:1,
+            PROMO_ROOK:  2,
+            PROMO_BISHOP:3,
         }
         self._promotion_options = sorted(promos, key=lambda m: order.get(m.promotion, 99))
 
@@ -497,13 +497,13 @@ class BoardWindow:
             self._promotion_rects.append(cell)
 
             # piece code for sprite
-            if m.promotion == Promotion.QUEEN:
+            if m.promotion == PROMO_QUEEN:
                 piece = p.WHITE_QUEEN if side_white else p.BLACK_QUEEN
-            elif m.promotion == Promotion.ROOK:
+            elif m.promotion == PROMO_ROOK:
                 piece = p.WHITE_ROOK if side_white else p.BLACK_ROOK
-            elif m.promotion == Promotion.BISHOP:
+            elif m.promotion == PROMO_BISHOP:
                 piece = p.WHITE_BISHOP if side_white else p.BLACK_BISHOP
-            elif m.promotion == Promotion.KNIGHT:
+            elif m.promotion == PROMO_KNIGHT:
                 piece = p.WHITE_KNIGHT if side_white else p.BLACK_KNIGHT
             else:
                 continue
@@ -521,7 +521,7 @@ class BoardWindow:
             return  # illegal drop
 
         # If any candidate has a promotion, enter promotion mode
-        if any(m.promotion != Promotion.NONE for m in cands):
+        if any(m.promotion != PROMO_NONE for m in cands):
             self._enter_promotion_mode(src, dst)
             return
 

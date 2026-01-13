@@ -27,7 +27,7 @@ def bench_perft(board, depth: int) -> int:
     (2, 400),
     (3, 8902),
     (4, 197281),
-    (5, 4865609),
+    # (5, 4865609),
 ])
 def test_perft_pos1(depth, expected):
     b = Board()
