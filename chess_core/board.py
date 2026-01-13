@@ -5,19 +5,28 @@ import random
 from chess_core.piece import Piece as p
 from chess_core.move import F_CAPTURE, F_CASTLE, F_DOUBLE_PAWN, F_EN_PASSANT, F_PROMOTION, PROMO_BISHOP, PROMO_KNIGHT, PROMO_NONE, PROMO_QUEEN, PROMO_ROOK, Move
 
-# TODO:
-#       - Zobrist hashing for position repetition detection
-#       - Add checkmate check and draw check (
-#           - same position 3 times
-#           - 50 move rule
-#           - insufficient material
-#           - stalemate)
-
 # Perforamance TODO:
 #      - Stop calling is_square_attacked() twice for castling legality check
 #      - BIG: replace Move objects with a packed integer encoding for faster move generation and lookup
 #          - 6 bits src, 6 bits dst, 5 bits flags, 3 bits promotion
 #      - Reduce undo overhead by making undo a tuple
+
+# Precomputed arrays for piece properties
+_ALL_PIECES = [
+    p.NONE,
+    p.WHITE_PAWN, p.WHITE_KNIGHT, p.WHITE_BISHOP, p.WHITE_ROOK, p.WHITE_QUEEN, p.WHITE_KING,
+    p.BLACK_PAWN, p.BLACK_KNIGHT, p.BLACK_BISHOP, p.BLACK_ROOK, p.BLACK_QUEEN, p.BLACK_KING,
+]
+
+_MAX_PC = max(_ALL_PIECES)
+IS_WHITE = [False] * (_MAX_PC + 1)
+PTYPE    = [0]     * (_MAX_PC + 1)  # p.PAWN / p.KNIGHT / ...
+
+for pc in _ALL_PIECES:
+    if pc == p.NONE:
+        continue
+    IS_WHITE[pc] = p.is_white(pc)
+    PTYPE[pc]    = p.piece_type(pc)
 
 @dataclass(slots=True)
 class Undo:
@@ -139,7 +148,7 @@ class Board:
     def _gen_pawn_moves(self, src: int) -> list[Move]:
         moves: list[Move] = []
         piece: int        = self._board[src]
-        white: bool       = p.is_white(piece)
+        white: bool       = IS_WHITE[piece]
         f_src, r_src      = self.idx_to_f_r(src)
         rank_direction    = 1 if white else -1
         promotion_rank    = self._ranks - 1 if white else 0
@@ -188,7 +197,7 @@ class Board:
     def _gen_king_moves(self, src:int) -> list[Move]:
         moves: list[Move] = []
         piece: int        = self._board[src]
-        white: bool       = p.is_white(piece)
+        white: bool       = IS_WHITE[piece]
         f_src, r_src      = self.idx_to_f_r(src)
 
         # Move 1 square in all
@@ -244,12 +253,12 @@ class Board:
     def _is_enemy(self, piece: int, white_to_move: bool) -> bool:
         if piece == p.NONE:
             return False
-        return p.is_white(piece) != white_to_move
+        return IS_WHITE[piece] != white_to_move
 
     def _gen_knight_moves(self, src: int) -> list[Move]:
         moves: list[Move] = []
         piece: int        = self._board[src]
-        white: bool       = p.is_white(piece)
+        white: bool       = IS_WHITE[piece]
 
         f0, r0 = self.idx_to_f_r(src)
         jumps  = ((-1,+2), (+1,+2), (-2,+1), (+2,+1),
@@ -269,7 +278,7 @@ class Board:
 
     def _gen_ray_into(self, moves: list[Move], src: int, df: int, dr: int) -> None:
         board: Sequence[int] = self._board
-        white: bool          = p.is_white(board[src])
+        white: bool          = IS_WHITE[board[src]]
         f, r                 = self.idx_to_f_r(src)
         files = self._files
         ranks = self._ranks
@@ -284,7 +293,7 @@ class Board:
             if target == p.NONE:
                 self._push_move(moves, src, dst)
                 continue
-            if p.is_white(target) != white:
+            if IS_WHITE[target] != white:
                 # hit something (enemy or own): stop the ray
                 self._push_move(moves, src, dst)
             return
@@ -322,7 +331,7 @@ class Board:
         if piece == p.NONE or self._is_enemy(piece, self._is_white_to_move):
             return []
         
-        match p.piece_type(piece):
+        match PTYPE[piece]:
             case p.PAWN:
                 return self._gen_pawn_moves(src)
             
@@ -393,7 +402,7 @@ class Board:
         elif en_passant:
             # captured pawn is behind dst
             src_piece = int(self._board[src])
-            cap = p.BLACK_PAWN if p.is_white(src_piece) else p.WHITE_PAWN
+            cap = p.BLACK_PAWN if IS_WHITE[src_piece] else p.WHITE_PAWN
             moves.append(Move(src, dst, F_EN_PASSANT | F_CAPTURE, PROMO_NONE, cap))
         elif promotion:
             moves.append(Move.promotion_to(src, dst, promotion, captured))
@@ -446,8 +455,8 @@ class Board:
                 if piece == p.NONE:
                     f1 += df; r1 += dr
                     continue
-                if p.is_white(piece) == by_white:
-                    t = p.piece_type(piece)
+                if IS_WHITE[piece] == by_white:
+                    t = PTYPE[piece]
                     if t in (p.BISHOP, p.QUEEN):
                         return True
                 break  # blocked
@@ -462,8 +471,8 @@ class Board:
                 if piece == p.NONE:
                     f1 += df; r1 += dr
                     continue
-                if p.is_white(piece) == by_white:
-                    t = p.piece_type(piece)
+                if IS_WHITE[piece] == by_white:
+                    t = PTYPE[piece]
                     if t in (p.ROOK, p.QUEEN):
                         return True
                 break  # blocked
@@ -518,7 +527,7 @@ class Board:
 
         # halfmove clock (for 50-move draw)
         # reset on pawn move or any capture
-        if p.piece_type(moved_piece) == p.PAWN or move.check_flag(F_CAPTURE):
+        if PTYPE[moved_piece] == p.PAWN or move.check_flag(F_CAPTURE):
             self._halfmove_clock = 0
         else:
             self._halfmove_clock += 1
@@ -529,7 +538,7 @@ class Board:
         # --- special moves ---
         if move.check_flag(F_EN_PASSANT):
             # capture pawn behind destination
-            if p.is_white(moved_piece):
+            if IS_WHITE[moved_piece]:
                 cap_sq = dst - self._files
             else:
                 cap_sq = dst + self._files
@@ -555,29 +564,29 @@ class Board:
             undo.rook_src, undo.rook_dst = rook_src, rook_dst
             self._board[rook_dst] = self._board[rook_src]
             self._board[rook_src] = p.NONE
-            rook_piece = p.WHITE_ROOK if p.is_white(moved_piece) else p.BLACK_ROOK
+            rook_piece = p.WHITE_ROOK if IS_WHITE[moved_piece] else p.BLACK_ROOK
             self._z_xor_piece(rook_piece, rook_src)
             self._z_xor_piece(rook_piece, rook_dst)
 
         # update castling rights due to king/rook moves or rook capture
-        t = p.piece_type(moved_piece)
+        t = PTYPE[moved_piece]
         if t == p.KING:
-            if p.is_white(moved_piece):
+            if IS_WHITE[moved_piece]:
                 self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE | self.WHITE_CASTLE_QUEENSIDE)
             else:
                 self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE | self.BLACK_CASTLE_QUEENSIDE)
         elif t == p.ROOK:
             f_src, r_src = self.idx_to_f_r(src)
-            if p.is_white(moved_piece):
+            if IS_WHITE[moved_piece]:
                 if f_src == 0 and r_src == 0: self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
                 if f_src == 7 and r_src == 0: self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
             else:
                 if f_src == 0 and r_src == 7: self._clear_castling_rights(self.BLACK_CASTLE_QUEENSIDE)
                 if f_src == 7 and r_src == 7: self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
 
-        if p.piece_type(undo.captured_piece) == p.ROOK:
+        if PTYPE[undo.captured_piece] == p.ROOK:
             f_dst, r_dst = self.idx_to_f_r(dst)
-            if p.is_white(undo.captured_piece):
+            if IS_WHITE[undo.captured_piece]:
                 if f_dst == 0 and r_dst == 0: self._clear_castling_rights(self.WHITE_CASTLE_QUEENSIDE)
                 if f_dst == 7 and r_dst == 0: self._clear_castling_rights(self.WHITE_CASTLE_KINGSIDE)
             else:
@@ -595,8 +604,8 @@ class Board:
         self._board[src] = p.NONE
  
         # update king square       
-        if p.piece_type(moved_piece) == p.KING:
-            if p.is_white(moved_piece):
+        if PTYPE[moved_piece] == p.KING:
+            if IS_WHITE[moved_piece]:
                 self._white_king_sq = dst
             else:
                 self._black_king_sq = dst
@@ -689,7 +698,7 @@ class Board:
             piece = int(board[src])
             if piece == p.NONE:
                 continue
-            if p.is_white(piece) != side:
+            if IS_WHITE[piece] != side:
                 continue
             legal.extend(get_legal_moves(src))
         return legal
@@ -927,7 +936,7 @@ class Board:
             if pc == p.NONE:
                 continue
 
-            t = p.piece_type(pc)
+            t = PTYPE[pc]
             if t == p.KING:
                 continue
 
