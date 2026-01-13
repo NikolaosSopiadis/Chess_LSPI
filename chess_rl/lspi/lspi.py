@@ -224,41 +224,58 @@ def _accumulate_A_b_mem(
     *,
     show_progress: bool,
     desc: str,
-    move_cache: Optional[LegalMoveCache] = None
+    action_cache: Optional[ActionPhiCache] = None,
 ) -> tuple[Float64Array, Float64Array]:
     d = feats.spec.dim
     A: Float64Array = np.zeros((d, d), dtype=np.float64)
     b: Float64Array = np.zeros((d,), dtype=np.float64)
 
-    b_next = Board()
+    # action-cache is the whole point here
+    if action_cache is None:
+        action_cache = ActionPhiCache(feats, max_size=200_000)
 
-    idx_iter = range(samples.phi.shape[0])
-    pbar = tqdm(idx_iter, total=samples.phi.shape[0], unit="rows", desc=desc, leave=False, mininterval=0.25) if (show_progress and tqdm is not None) else None
+    w32 = w.astype(np.float32, copy=False)  # alloc once per iteration
+
+    CHUNK = 4096
+    Phi_next_buf = np.empty((CHUNK, d), dtype=np.float64)
+    diff_tmp = np.empty((CHUNK, d), dtype=np.float64)
+
+    N = samples.phi.shape[0]
+    idx_iter = range(0, N, CHUNK)
+    pbar = tqdm(idx_iter, total=(N + CHUNK - 1) // CHUNK, unit="chunks", desc=desc, leave=False, mininterval=0.25) \
+        if (show_progress and tqdm is not None) else None
     it = pbar if pbar is not None else idx_iter
 
-    for i in it:
-        phi = samples.phi[i]
-        r = float(samples.r[i])
-        done = bool(samples.done[i])
+    for start in it:
+        end = min(N, start + CHUNK)
+        B = end - start
 
-        if done:
-            phi_next = np.zeros(d, dtype=np.float64)
-        else:
-            b_next.init_board(samples.fen_next[i])
-            phi_next = greedy_choice(b_next, w, feats, move_cache).phi  # <- reuse best phi
+        Phi = samples.phi[start:end]          # (B,d)
+        r_vec = samples.r[start:end]          # (B,)
+        done_vec = samples.done[start:end]    # (B,)
 
-        diff = phi - cfg.gamma * phi_next
+        Phi_next = Phi_next_buf[:B]
+        Phi_next.fill(0.0)
 
-        # keep your rank-1 update (or revert to outer if you prefer)
-        for k in range(d):
-            A[k] += phi[k] * diff
+        # fill Phi_next using action cache
+        for j in range(B):
+            if done_vec[j]:
+                continue
+            fen = samples.fen_next[start + j]
+            Phi_next[j] = action_cache.best_phi32(fen, w32)  # float32 -> float64 row
 
-        b += phi * r
+        # Diff = Phi - gamma*Phi_next
+        np.multiply(Phi_next, cfg.gamma, out=diff_tmp[:B])
+        np.subtract(Phi, diff_tmp[:B], out=diff_tmp[:B])
+
+        A += Phi.T @ diff_tmp[:B]
+        b += Phi.T @ r_vec
 
     if pbar is not None:
         pbar.close()
 
     return A, b
+
 
 def solve_lspi(
     samples_path: str,
@@ -298,9 +315,6 @@ def solve_lspi(
     pool: Optional[PinnedShardPool] = None
     n_workers = workers or max(1, (os.cpu_count() or 1) - 1)
     
-    # create move cache
-    move_cache: LegalMoveCache = LegalMoveCache(max_size=250_000)
-
     try:
         if shard_paths:
             pool = PinnedShardPool(
@@ -313,6 +327,9 @@ def solve_lspi(
                 cache_max=200_000,
                 move_cache_max=250_000,
             )
+        else:
+            # move_cache: LegalMoveCache = LegalMoveCache(max_size=250_000)
+            action_cache: ActionPhiCache = ActionPhiCache(feats, max_size=200_000)
 
         for it in range(cfg.max_iters):
             if pool is not None:
@@ -327,7 +344,7 @@ def solve_lspi(
                     samples_mem, w, feats, cfg,
                     show_progress=verbose,
                     desc=f"LSPI accumulate mem {it+1}/{cfg.max_iters}",
-                    move_cache=move_cache,
+                    action_cache=action_cache,
                 )
             else:
                 A, bvec = _accumulate_A_b(
@@ -335,7 +352,7 @@ def solve_lspi(
                     show_progress=verbose,
                     total_hint=total_hint,
                     desc=f"LSPI accumulate {it+1}/{cfg.max_iters}",
-                    move_cache=move_cache,
+                    # move_cache=move_cache,
                 )
 
             A_reg = A + cfg.reg * I
@@ -350,6 +367,9 @@ def solve_lspi(
             w = w_new
 
             if verbose:
+                print(f"Action cache: hits={action_cache.hits}, misses={action_cache.misses}, "
+                      f"hit rate={action_cache.hits / max(1, action_cache.hits + action_cache.misses):.3%}")
+
                 if tqdm is not None:
                     tqdm.write(f"[LSPI] iter {it+1}/{cfg.max_iters}  |Δw|={delta:.3e}")
                 else:
@@ -474,7 +494,7 @@ def _worker_loop_pinned(
             return
 
         iter_idx, w = msg
-        w32 = w.astype(np.float32)   # cast from float64 to float32
+        w32 = w.astype(np.float32, copy=False)   # cast from float64 to float32
         d = feats.spec.dim
         A = np.zeros((d, d), dtype=np.float64)
         b = np.zeros((d,), dtype=np.float64)
@@ -662,3 +682,44 @@ def _update_A_b_chunk(
     np.subtract(Phi, diff_tmp, out=diff_tmp)
     A += Phi.T @ diff_tmp
     b += Phi.T @ r
+
+
+class ActionPhiCache:
+    def __init__(self, feats: FeatureExtractor, *, max_size: int = 200_000):
+        self.feats = feats
+        self.max_size = int(max_size)
+        self.lru: "OrderedDict[str, _ActionPhiCacheEntry]" = OrderedDict()
+        self.b = Board()
+        self.hits = 0
+        self.misses = 0
+
+    def best_phi32(self, fen: str, w32: Float32Array) -> Float32Array:
+        k = fen_key(fen)  # your current fen_key()
+        entry = self.lru.get(k)
+        if entry is None:
+            self.misses += 1
+
+            self.b.init_board(fen)
+            moves = self.b.get_all_legal_moves()
+            d = self.feats.spec.dim
+
+            if not moves:
+                phis32 = np.zeros((1, d), dtype=np.float32)
+                entry = _ActionPhiCacheEntry(self.b.get_is_white_to_move(), phis32)
+            else:
+                phis32 = np.empty((len(moves), d), dtype=np.float32)
+                for i, m in enumerate(moves):
+                    phis32[i] = self.feats.phi_sa(self.b, m)  # float64 -> cast to float32 row
+                entry = _ActionPhiCacheEntry(self.b.get_is_white_to_move(), phis32)
+
+            self.lru[k] = entry
+            self.lru.move_to_end(k)
+            if len(self.lru) > self.max_size:
+                self.lru.popitem(last=False)
+        else:
+            self.hits += 1
+            self.lru.move_to_end(k)
+
+        scores = entry.phis @ w32
+        idx = int(np.argmax(scores) if entry.white_to_move else np.argmin(scores))
+        return entry.phis[idx]
