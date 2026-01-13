@@ -442,7 +442,8 @@ def _worker_loop_pinned(
     lru: "OrderedDict[str, _ActionPhiCacheEntry]" = OrderedDict()
 
     def best_phi_next_cached_local(fen: str, w32: Float32Array) -> Float32Array:
-        entry = lru.get(fen)
+        k = fen_key(fen)
+        entry = lru.get(k)
         if entry is None:
             b_tmp.init_board(fen)
             moves = b_tmp.get_all_legal_moves()
@@ -455,12 +456,12 @@ def _worker_loop_pinned(
                     phis32[i] = feats.phi_sa(b_tmp, m)   # copies into row
                 entry = _ActionPhiCacheEntry(b_tmp.get_is_white_to_move(), phis32)
 
-            lru[fen] = entry
+            lru[k] = entry
             if cache_max > 0 and len(lru) > cache_max:
                 lru.popitem(last=False)  # evict oldest
         else:
             # mark as most recently used
-            lru.move_to_end(fen)
+            lru.move_to_end(k)
 
         scores = entry.phis @ w32
         idx = int(np.argmax(scores) if entry.white_to_move else np.argmin(scores))
@@ -560,6 +561,11 @@ def _worker_loop_pinned(
 
 
         out_q.put((iter_idx, A, b))
+
+# do not include fullmove number in fen key for better cache hits
+def fen_key(fen: str) -> str:
+    parts = fen.split()
+    return " ".join(parts[:5])  # placement, active, castling, ep, halfmove
 
 
 class PinnedShardPool:
