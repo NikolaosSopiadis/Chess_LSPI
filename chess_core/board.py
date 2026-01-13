@@ -116,6 +116,29 @@ RAYS: Final[tuple[tuple[tuple[int, ...], ...], ...]] = tuple(
 # indices in RAYS
 E,W,N,S,NE,NW,SE,SW = range(8)
 
+# Pawn push and capture tables
+W_PUSH1 = tuple((sq + 8) if sq < 56 else -1 for sq in range(64))
+B_PUSH1 = tuple((sq - 8) if sq >= 8 else -1 for sq in range(64))
+
+W_PUSH2 = tuple((sq + 16) if 8 <= sq < 16 else -1 for sq in range(64))    # rank 2
+B_PUSH2 = tuple((sq - 16) if 48 <= sq < 56 else -1 for sq in range(64))   # rank 7
+
+W_CAPS = tuple(
+    tuple(dst for dst in (
+        (sq + 7 if (sq & 7) != 0 else -1),
+        (sq + 9 if (sq & 7) != 7 else -1),
+    ) if 0 <= dst < 64)
+    for sq in range(64)
+)
+
+B_CAPS = tuple(
+    tuple(dst for dst in (
+        (sq - 9 if (sq & 7) != 0 else -1),
+        (sq - 7 if (sq & 7) != 7 else -1),
+    ) if 0 <= dst < 64)
+    for sq in range(64)
+)
+
 ########################################
 ### End of precomputed attack tables ###
 ########################################
@@ -242,123 +265,107 @@ class Board:
     #     return f + (r * self._files)
 
     def _gen_pawn_moves(self, src: int) -> list[Move]:
+        board = self._board
+        piece = board[src]
+        white = IS_WHITE[piece]
+
         moves: list[Move] = []
-        piece: int        = self._board[src]
-        white: bool       = IS_WHITE[piece]
-        # f_src, r_src      = _file(src), _rank(src)
-        f_src: int        = src & 7
-        r_src: int        = src >> 3
-        rank_direction    = 1 if white else -1
-        promotion_rank    = self._ranks - 1 if white else 0
-        start_rank        = 1 if white else self._ranks - 2
- 
-        # One forward
-        r1: int = r_src + rank_direction
-        if 0 <= r1 < self._ranks:
-            # dst = _idx(f_src, r1)
-            dst = f_src + (r1 << 3)
-            if self._board[dst] == p.NONE:
-                if r1 == promotion_rank:
+        append = moves.append
+        ep = self._en_passant_target
+
+        if white:
+            one = W_PUSH1[src]
+            if one != -1 and board[one] == p.NONE:
+                if one >= 56:
                     for to in (PROMO_KNIGHT, PROMO_BISHOP, PROMO_ROOK, PROMO_QUEEN):
-                        self._push_move(moves, src, dst, promotion=to)
+                        append(Move.promotion_to(src, one, to, 0))
                 else:
-                    self._push_move(moves, src, dst)   
+                    append(Move.normal(src, one, 0))
+                    two = W_PUSH2[src]
+                    if two != -1 and board[two] == p.NONE:
+                        append(Move.double_pawn(src, two))
 
-                # Two forward
-                if r_src == start_rank:
-                    # mid: int = _idx(f_src, r_src + rank_direction)
-                    mid: int = f_src + ((r_src + rank_direction) << 3)
-                    r2 = r_src + 2 * rank_direction
-                    # dst2 = _idx(f_src, r2)
-                    dst2 = f_src + (r2 << 3)
-                    if self._board[mid] == p.NONE and self._board[dst2] == p.NONE:
-                        self._push_move(moves, src, dst2, double_pawn=True)
-
-        # Captures (left/right)
-        for df in (-1, 1):
-            f1: int = f_src + df
-            r1: int = r_src + rank_direction
-            
-            if 0 <= f1 < self._files and 0 <= r1 < self._ranks:
-                # dst: int = _idx(f1, r1)
-                dst: int = f1 + (r1 << 3)
-                target_piece: int = self._board[dst]
-                if self._is_enemy(target_piece, white):
-                    if r1 == promotion_rank:
+            for dst in W_CAPS[src]:
+                tp = board[dst]
+                if tp != p.NONE and not IS_WHITE[tp]:
+                    if dst >= 56:
                         for to in (PROMO_KNIGHT, PROMO_BISHOP, PROMO_ROOK, PROMO_QUEEN):
-                            self._push_move(moves, src, dst, promotion=to)
+                            append(Move.promotion_to(src, dst, to, tp))
                     else:
-                        self._push_move(moves, src, dst)   
+                        append(Move.normal(src, dst, tp))
+                elif ep is not None and dst == ep:
+                    # IMPORTANT: keep captured_piece set so exact-match move validation works
+                    append(Move(src, dst, F_EN_PASSANT | F_CAPTURE, PROMO_NONE, p.BLACK_PAWN))
+        else:
+            one = B_PUSH1[src]
+            if one != -1 and board[one] == p.NONE:
+                if one < 8:
+                    for to in (PROMO_KNIGHT, PROMO_BISHOP, PROMO_ROOK, PROMO_QUEEN):
+                        append(Move.promotion_to(src, one, to, 0))
+                else:
+                    append(Move.normal(src, one, 0))
+                    two = B_PUSH2[src]
+                    if two != -1 and board[two] == p.NONE:
+                        append(Move.double_pawn(src, two))
 
-                # En passant
-                if self._en_passant_target == dst:
-                    self._push_move(moves, src, dst, en_passant=True)
-        
+            for dst in B_CAPS[src]:
+                tp = board[dst]
+                if tp != p.NONE and IS_WHITE[tp]:
+                    if dst < 8:
+                        for to in (PROMO_KNIGHT, PROMO_BISHOP, PROMO_ROOK, PROMO_QUEEN):
+                            append(Move.promotion_to(src, dst, to, tp))
+                    else:
+                        append(Move.normal(src, dst, tp))
+                elif ep is not None and dst == ep:
+                    append(Move(src, dst, F_EN_PASSANT | F_CAPTURE, PROMO_NONE, p.WHITE_PAWN))
+
         return moves
 
-    def _gen_king_moves(self, src:int) -> list[Move]:
+    def _gen_king_moves(self, src: int) -> list[Move]:
+        board = self._board
+        isw = IS_WHITE
+        white = isw[board[src]]
+
         moves: list[Move] = []
-        piece: int        = self._board[src]
-        white: bool       = IS_WHITE[piece]
-        # f_src, r_src      = _file(src), _rank(src)
-        f_src: int        = src & 7
-        r_src: int        = src >> 3
+        append = moves.append
 
-        # Move 1 square in all
-        for dr in (-1, 0, 1):
-            for df in (-1, 0, 1):
-                if dr == 0 and df == 0:
-                    continue
-                
-                f = f_src + df
-                r = r_src + dr
-                if 0 <= f < self._files and 0 <= r < self._ranks:
-                    # dst = _idx(f, r)
-                    dst = f + (r << 3)
-                    target_piece = self._board[dst]
-                    if target_piece == p.NONE or self._is_enemy(target_piece, white):
-                        self._push_move(moves, src, dst)
+        # normal king steps
+        for dst in KING_MOVES[src]:
+            tp = board[dst]
+            if tp == p.NONE:
+                append(Move.normal(src, dst, 0))
+            elif isw[tp] != white:
+                append(Move.normal(src, dst, tp))
 
-        # Castling (obstructions only, checks and pins will be calculated later)
-        # queenside_dst = _idx(2, r_src)
-        queenside_dst = 2 + (r_src << 3)
-        # kingside_dst  = _idx(self._files - 2, r_src)
-        kingside_dst = (self._files - 2) + (r_src << 3)
-        # start_king_sq = _idx(4, 0 if white else 7)
-        start_king_sq = 4 + ((0 if white else 7) << 3)
-        if src != start_king_sq:
-            return moves  # no castling unless king is on e1/e8
+        # castling (obstructions only)
+        # e1=4, e8=60
+        start = 4 if white else 60
+        if src != start:
+            return moves
 
         rook_piece = p.WHITE_ROOK if white else p.BLACK_ROOK
-        
-        if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE if white else self.BLACK_CASTLE_QUEENSIDE):
-            obstructed = False
-            for f in range(f_src - 1, 0, -1):
-                # castle_path = _idx(f, r_src)
-                castle_path = f + (r_src << 3)
-                if self._board[castle_path] != p.NONE:
-                    obstructed = True
-                    break
-            # queenside rook must exist
-            # qs_rook_sq = _idx(0, r_src)
-            qs_rook_sq = 0 + (r_src << 3)
-            if self._board[qs_rook_sq] == rook_piece and not obstructed:
-                moves.append(Move.castle(src, queenside_dst))
 
-        if self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE if white else self.BLACK_CASTLE_KINGSIDE):
-            obstructed = False
-            for f in range(f_src + 1, self._files - 1):
-                # castle_path = _idx(f, r_src)
-                castle_path = f + (r_src << 3)
-                if self._board[castle_path] != p.NONE:
-                    obstructed = True
-                    break
-            # kingside rook must exist
-            # ks_rook_sq = _idx(self._files - 1, r_src)
-            ks_rook_sq = (self._files - 1) + (r_src << 3)
-            if self._board[ks_rook_sq] == rook_piece and not obstructed:
-                moves.append(Move.castle(src, kingside_dst))
-        
+        if white:
+            # white queenside: rook a1=0, empty squares b1=1 c1=2 d1=3
+            if self._has_castling_rights(self.WHITE_CASTLE_QUEENSIDE):
+                if board[0] == rook_piece and board[1] == p.NONE and board[2] == p.NONE and board[3] == p.NONE:
+                    append(Move.castle(src, 2))  # c1
+
+            # white kingside: rook h1=7, empty squares f1=5 g1=6
+            if self._has_castling_rights(self.WHITE_CASTLE_KINGSIDE):
+                if board[7] == rook_piece and board[5] == p.NONE and board[6] == p.NONE:
+                    append(Move.castle(src, 6))  # g1
+        else:
+            # black queenside: rook a8=56, empty squares b8=57 c8=58 d8=59
+            if self._has_castling_rights(self.BLACK_CASTLE_QUEENSIDE):
+                if board[56] == rook_piece and board[57] == p.NONE and board[58] == p.NONE and board[59] == p.NONE:
+                    append(Move.castle(src, 58))  # c8
+
+            # black kingside: rook h8=63, empty squares f8=61 g8=62
+            if self._has_castling_rights(self.BLACK_CASTLE_KINGSIDE):
+                if board[63] == rook_piece and board[61] == p.NONE and board[62] == p.NONE:
+                    append(Move.castle(src, 62))  # g8
+
         return moves
 
     def _is_enemy(self, piece: int, white_to_move: bool) -> bool:
@@ -367,79 +374,73 @@ class Board:
         return IS_WHITE[piece] != white_to_move
 
     def _gen_knight_moves(self, src: int) -> list[Move]:
+        board = self._board
+        piece = board[src]
+        white = IS_WHITE[piece]
         moves: list[Move] = []
-        piece: int        = self._board[src]
-        white: bool       = IS_WHITE[piece]
-
-        # f0, r0 = _file(src), _rank(src)
-        f0: int        = src & 7
-        r0: int        = src >> 3
-        jumps  = ((-1,+2), (+1,+2), (-2,+1), (+2,+1),
-                  (-2,-1), (+2,-1), (-1,-2), (+1,-2))
-
-        for df, dr in jumps:
-            f: int = f0 + df
-            r: int = r0 + dr
-            if 0 <= f < self._files and 0 <= r < self._ranks:
-                # dst: int = _idx(f, r)
-                dst: int = f + (r << 3)
-                target_piece: int = self._board[dst]
-                if target_piece == p.NONE or self._is_enemy(target_piece, white):
-                    self._push_move(moves, src, dst)
-
-        return moves
-
-
-    def _gen_ray_into(self, moves: list[Move], src: int, df: int, dr: int) -> None:
-        board: Sequence[int] = self._board
-        white: bool          = IS_WHITE[board[src]]
-        # f, r                 = _file(src), _rank(src)
-        f: int               = src & 7
-        r: int               = src >> 3
-        files = self._files
-        ranks = self._ranks
-
-        while True:
-            f += df; r += dr
-            if not (0 <= f < files and 0 <= r < ranks):
-                return
-            # dst = get_idx(f, r)
-            dst = f + (r << 3)           
-            target = board[dst]
-            if target == p.NONE:
-                self._push_move(moves, src, dst)
-                continue
-            if IS_WHITE[target] != white:
-                # hit something (enemy or own): stop the ray
-                self._push_move(moves, src, dst)
-            return
-
-    def _gen_diag_moves(self, src: int) -> list[Move]:
-        # bishop-like
-        moves: list[Move] = []
-        self._gen_ray_into(moves, src, +1, +1)
-        self._gen_ray_into(moves, src, +1, -1)
-        self._gen_ray_into(moves, src, -1, +1)
-        self._gen_ray_into(moves, src, -1, -1)
-        return moves
-
-    def _gen_ortho_moves(self, src: int) -> list[Move]:
-        # rook-like
-        moves: list[Move] = []
-        self._gen_ray_into(moves, src, +1,  0)
-        self._gen_ray_into(moves, src, -1,  0)
-        self._gen_ray_into(moves, src,  0, +1)
-        self._gen_ray_into(moves, src,  0, -1)
+        for dst in KNIGHT_MOVES[src]:
+            tp = board[dst]
+            if tp == p.NONE:
+                moves.append(Move.normal(src, dst, 0))
+            elif IS_WHITE[tp] != white:
+                moves.append(Move.normal(src, dst, tp))
         return moves
 
     def _gen_bishop_moves(self, src: int) -> list[Move]:
-        return self._gen_diag_moves(src)
+        board = self._board
+        isw = IS_WHITE
+        white = isw[board[src]]
+
+        moves: list[Move] = []
+        append = moves.append
+
+        for dir_i in (NE, NW, SE, SW):
+            for dst in RAYS[src][dir_i]:
+                tp = board[dst]
+                if tp == p.NONE:
+                    append(Move.normal(src, dst, 0))
+                    continue
+                if isw[tp] != white:
+                    append(Move.normal(src, dst, tp))
+                break
+
+        return moves
 
     def _gen_rook_moves(self, src: int) -> list[Move]:
-        return self._gen_ortho_moves(src)
+        board = self._board
+        white = IS_WHITE[board[src]]
+        moves: list[Move] = []
+        for dir_i in (E, W, N, S):
+            for dst in RAYS[src][dir_i]:
+                tp = board[dst]
+                if tp == p.NONE:
+                    moves.append(Move.normal(src, dst, 0))
+                    continue
+                if IS_WHITE[tp] != white:
+                    moves.append(Move.normal(src, dst, tp))
+                break
+        return moves
 
     def _gen_queen_moves(self, src: int) -> list[Move]:
-        return self._gen_diag_moves(src) + self._gen_ortho_moves(src)
+        board = self._board
+        isw = IS_WHITE
+        white = isw[board[src]]
+
+        moves: list[Move] = []
+        append = moves.append
+
+        # all 8 directions
+        for dir_i in range(8):
+            for dst in RAYS[src][dir_i]:
+                tp = board[dst]
+                if tp == p.NONE:
+                    append(Move.normal(src, dst, 0))
+                    continue
+                if isw[tp] != white:
+                    append(Move.normal(src, dst, tp))
+                break
+
+        return moves
     
     def get_pseudolegal_moves(self, src: int) -> list[Move]:
         piece: int = self._board[src]
@@ -511,26 +512,6 @@ class Board:
     
     def get_board(self) -> Sequence[int]:
         return self._board
-
-    def _push_move(self, moves: list[Move], src: int, dst: int,
-                   promotion: int = PROMO_NONE,
-                   en_passant: bool = False, castle: bool = False,
-                   double_pawn: bool = False) -> None:
-        captured: int = self._board[dst] # For en passant, calculate capture in make_move
-
-        if castle:
-            moves.append(Move.castle(src, dst))
-        elif en_passant:
-            # captured pawn is behind dst
-            src_piece = int(self._board[src])
-            cap = p.BLACK_PAWN if IS_WHITE[src_piece] else p.WHITE_PAWN
-            moves.append(Move(src, dst, F_EN_PASSANT | F_CAPTURE, PROMO_NONE, cap))
-        elif promotion:
-            moves.append(Move.promotion_to(src, dst, promotion, captured))
-        elif double_pawn:
-            moves.append(Move.double_pawn(src, dst))
-        else:
-            moves.append(Move.normal(src, dst, captured))
 
     def get_is_white_to_move(self) -> bool:
         return self._is_white_to_move
