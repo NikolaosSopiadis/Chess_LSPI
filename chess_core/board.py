@@ -27,6 +27,97 @@ for pc in _ALL_PIECES:
         continue
     IS_WHITE[pc] = p.is_white(pc)
     PTYPE[pc]    = p.piece_type(pc)
+    
+#######################################
+### Precompute attack tables + rays ###
+#######################################
+
+def _king_neighbors(sq: int) -> list[int]:
+    f = sq & 7
+    r = sq >> 3
+    out = []
+    for df in (-1, 0, 1):
+        for dr in (-1, 0, 1):
+            if df == 0 and dr == 0:
+                continue
+            nf = f + df
+            nr = r + dr
+            if 0 <= nf < 8 and 0 <= nr < 8:
+                out.append(nf | (nr << 3))
+    return out
+
+def _knight_targets(sq: int) -> list[int]:
+    f = sq & 7
+    r = sq >> 3
+    out = []
+    jumps = ((-1,+2), (+1,+2), (-2,+1), (+2,+1),
+             (-2,-1), (+2,-1), (-1,-2), (+1,-2))
+    for df, dr in jumps:
+        nf = f + df
+        nr = r + dr
+        if 0 <= nf < 8 and 0 <= nr < 8:
+            out.append(nf | (nr << 3))
+    return out
+
+
+KNIGHT_DELTAS = (17, 15, 10, 6, -6, -10, -15, -17)
+KING_DELTAS   = (1, -1, 8, -8, 9, 7, -7, -9)
+KING_MOVES   = [_king_neighbors(sq) for sq in range(64)]
+KNIGHT_MOVES = [_knight_targets(sq) for sq in range(64)]
+# attacker squares FROM which a pawn of a given color attacks sq
+PAWN_ATTACKERS_WHITE = [[] for _ in range(64)]  # white pawn attacks upward; attackers are "downward"
+PAWN_ATTACKERS_BLACK = [[] for _ in range(64)]  # black pawn attacks downward; attackers are "upward"
+
+for sq in range(64):
+    f = sq & 7
+    r = sq >> 3
+    # white pawn attacks sq from (f-1,r-1) and (f+1,r-1)
+    if r - 1 >= 0:
+        if f - 1 >= 0: PAWN_ATTACKERS_WHITE[sq].append((f - 1) | ((r - 1) << 3))
+        if f + 1 < 8:  PAWN_ATTACKERS_WHITE[sq].append((f + 1) | ((r - 1) << 3))
+    # black pawn attacks sq from (f-1,r+1) and (f+1,r+1)
+    if r + 1 < 8:
+        if f - 1 >= 0: PAWN_ATTACKERS_BLACK[sq].append((f - 1) | ((r + 1) << 3))
+        if f + 1 < 8:  PAWN_ATTACKERS_BLACK[sq].append((f + 1) | ((r + 1) << 3))
+
+# board.py (module-level)
+
+DIRS = (1, -1, 8, -8, 9, 7, -7, -9)  # E,W,N,S,NE,NW,SE,SW
+
+def _ray_from(sq: int, step: int) -> list[int]:
+    out = []
+    f0 = sq & 7
+    cur = sq
+    while True:
+        nxt = cur + step
+        if not (0 <= nxt < 64):
+            return out
+        # prevent wrap on horizontal/diagonal
+        f1 = nxt & 7
+        if step == 1 and f1 == 0:  # wrapped h->a
+            return out
+        if step == -1 and f1 == 7: # wrapped a->h
+            return out
+        # diagonals must change file by 1 each step
+        if step in (9, -7) and f1 == 0:  # wrapped
+            return out
+        if step in (7, -9) and f1 == 7:  # wrapped
+            return out
+
+        out.append(nxt)
+        cur = nxt
+
+RAYS = [[None]*8 for _ in range(64)]
+for sq in range(64):
+    for i, step in enumerate(DIRS):
+        RAYS[sq][i] = _ray_from(sq, step)
+
+# indices in RAYS
+E,W,N,S,NE,NW,SE,SW = range(8)
+
+########################################
+### End of precomputed attack tables ###
+########################################
 
 @dataclass(slots=True)
 class Undo:
@@ -444,77 +535,58 @@ class Board:
         return self._is_white_to_move
     
     def is_square_attacked(self, square: int, by_white: bool) -> bool:
-        """Return True if `square` is attacked by the given color."""
         board = self._board
-        files = self._files
-        ranks = self._ranks
-        get_idx = _idx
+        isw = IS_WHITE
+        ptype = PTYPE
 
-        # f_src, r_src = _file(square), _rank(square)
-        f_src: int = square & 7
-        r_src: int = square >> 3
-        board: Sequence[int] = board
-
-        # --- Pawn attacks ---
-        pawn_dir: int = -1 if by_white else +1
-        for df in (-1, 1):
-            f1: int = f_src + df
-            r1: int = r_src + pawn_dir
-            if 0 <= f1 < files and 0 <= r1 < ranks:
-                idx = get_idx(f1, r1)
-                if board[idx] == (p.WHITE_PAWN if by_white else p.BLACK_PAWN):
+        # pawn
+        if by_white:
+            wp = p.WHITE_PAWN
+            for s in PAWN_ATTACKERS_WHITE[square]:
+                if board[s] == wp:
+                    return True
+        else:
+            bp = p.BLACK_PAWN
+            for s in PAWN_ATTACKERS_BLACK[square]:
+                if board[s] == bp:
                     return True
 
-        # --- Knight attacks ---
-        for df, dr in ((1,2),(2,1),(2,-1),(1,-2),(-1,-2),(-2,-1),(-2,1),(-1,2)):
-            f1: int = f_src + df
-            r1: int = r_src + dr
-            if 0 <= f1 < files and 0 <= r1 < ranks:
-                idx = get_idx(f1, r1)
-                if board[idx] == (p.WHITE_KNIGHT if by_white else p.BLACK_KNIGHT):
-                    return True
+        # knight
+        kn = p.WHITE_KNIGHT if by_white else p.BLACK_KNIGHT
+        for s in KNIGHT_MOVES[square]:
+            if board[s] == kn:
+                return True
 
-        # --- Sliding pieces (Bishop / Rook / Queen) ---
-        # Diagonals for Bishop/Queen
-        for df, dr in ((1,1),(1,-1),(-1,1),(-1,-1)):
-            f1: int = f_src + df
-            r1: int = r_src + dr
-            while 0 <= f1 < files and 0 <= r1 < ranks:
-                idx = get_idx(f1, r1)
-                piece = board[idx]
-                if piece == p.NONE:
-                    f1 += df; r1 += dr
+        # king
+        kk = p.WHITE_KING if by_white else p.BLACK_KING
+        for s in KING_MOVES[square]:
+            if board[s] == kk:
+                return True
+
+        # sliders
+        # diagonals: bishop/queen
+        for dir_i in (NE, NW, SE, SW):
+            for s in RAYS[square][dir_i]:
+                pc = board[s]
+                if pc == p.NONE:
                     continue
-                if IS_WHITE[piece] == by_white:
-                    t = PTYPE[piece]
-                    if t in (p.BISHOP, p.QUEEN):
+                if isw[pc] == by_white:
+                    t = ptype[pc]
+                    if t == p.BISHOP or t == p.QUEEN:
                         return True
-                break  # blocked
+                break
 
-        # Orthogonals for Rook/Queen
-        for df, dr in ((1,0),(-1,0),(0,1),(0,-1)):
-            f1: int = f_src + df
-            r1: int = r_src + dr
-            while 0 <= f1 < files and 0 <= r1 < ranks:
-                idx = get_idx(f1, r1)
-                piece = board[idx]
-                if piece == p.NONE:
-                    f1 += df; r1 += dr
+        # orthogonals: rook/queen
+        for dir_i in (E, W, N, S):
+            for s in RAYS[square][dir_i]:
+                pc = board[s]
+                if pc == p.NONE:
                     continue
-                if IS_WHITE[piece] == by_white:
-                    t = PTYPE[piece]
-                    if t in (p.ROOK, p.QUEEN):
+                if isw[pc] == by_white:
+                    t = ptype[pc]
+                    if t == p.ROOK or t == p.QUEEN:
                         return True
-                break  # blocked
-
-        # --- King attacks ---
-        for df, dr in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)):
-            f1: int = f_src + df
-            r1: int = r_src + dr
-            if 0 <= f1 < files and 0 <= r1 < ranks:
-                idx = get_idx(f1, r1)
-                if board[idx] == (p.WHITE_KING if by_white else p.BLACK_KING):
-                    return True
+                break
 
         return False
     
@@ -1055,3 +1127,10 @@ class Board:
         # Make do/undo safe after restoring
         self._rep_stack = [self._zkey]
         self._rep_counts = {self._zkey: 1}
+
+
+def _on_board(sq: int) -> bool:
+    return 0 <= sq < 64
+
+def _same_file(a: int, b: int) -> bool:
+    return (a & 7) == (b & 7)
