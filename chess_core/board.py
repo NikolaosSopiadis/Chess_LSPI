@@ -390,7 +390,7 @@ class Board:
 
         for m in pseudo:
             # Castling extra restriction: not out of / through / into check
-            if m.check_flag(F_CASTLE):
+            if m.flags & F_CASTLE:
                 if self.is_square_attacked(king_sq0, by_white=not side):
                     continue
                 # f_src, r_src = _file(m.src_square), _rank(m.src_square)
@@ -557,7 +557,7 @@ class Board:
 
         # halfmove clock (for 50-move draw)
         # reset on pawn move or any capture
-        if PTYPE[moved_piece] == p.PAWN or move.check_flag(F_CAPTURE):
+        if PTYPE[moved_piece] == p.PAWN or move.flags & F_CAPTURE:
             self._halfmove_clock = 0
         else:
             self._halfmove_clock += 1
@@ -566,7 +566,7 @@ class Board:
         self._z_xor_piece(moved_piece, src)
 
         # --- special moves ---
-        if move.check_flag(F_EN_PASSANT):
+        if move.flags & F_EN_PASSANT:
             # capture pawn behind destination
             if IS_WHITE[moved_piece]:
                 cap_sq = dst - self._files
@@ -581,7 +581,7 @@ class Board:
             if captured_piece != p.NONE:
                 self._z_xor_piece(captured_piece, dst) 
             
-        if move.check_flag(F_CASTLE):
+        if move.flags & F_CASTLE:
             # f_src, r_src = _file(src), _rank(src)
             f_src: int = src & 7
             r_src: int = src >> 3
@@ -635,7 +635,7 @@ class Board:
                 if f_dst == 7 and r_dst == 7: self._clear_castling_rights(self.BLACK_CASTLE_KINGSIDE)
 
         # double pawn sets en passant target
-        if move.check_flag(F_DOUBLE_PAWN):
+        if move.flags & F_DOUBLE_PAWN:
             # f_src, r_src = _file(src), _rank(src)
             f_src: int = src & 7
             r_src: int = src >> 3
@@ -656,7 +656,7 @@ class Board:
                 self._black_king_sq = dst
 
         # promotion replaces piece on dst
-        if move.check_flag(F_PROMOTION):
+        if move.flags & F_PROMOTION:
             color = p.piece_color(moved_piece)
             promo_t = {
                 PROMO_QUEEN:  p.QUEEN,
@@ -720,7 +720,7 @@ class Board:
             self._board[dst] = p.NONE
 
         # undo castling rook move
-        if move.check_flag(F_CASTLE):
+        if move.flags & F_CASTLE:
             self._board[undo.rook_src] = self._board[undo.rook_dst]
             self._board[undo.rook_dst] = p.NONE
             
