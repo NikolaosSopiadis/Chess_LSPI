@@ -19,7 +19,7 @@ Float32Array = npt.NDArray[np.float32]
 
 from chess_core.board import Board
 from chess_rl.features.base import FeatureExtractor
-from chess_rl.policy.greedy import LegalMoveCache, greedy_choice
+from chess_rl.policy.greedy import greedy_choice
 
 try:
     from tqdm.auto import tqdm  # type: ignore
@@ -133,7 +133,6 @@ def _accumulate_A_b(
     show_progress: bool,
     total_hint: Optional[int],
     desc: str,
-    move_cache: Optional[LegalMoveCache] = None
 ) -> tuple[Float64Array, Float64Array]:
     d = feats.spec.dim
     A: Float64Array = np.zeros((d, d), dtype=np.float64)
@@ -185,7 +184,7 @@ def _accumulate_A_b(
             Phi_next_buf[filled].fill(0.0)
         else:
             b_next.init_board(str(rec["fen_next"]))
-            Phi_next_buf[filled] = greedy_choice(b_next, w, feats, move_cache).phi
+            Phi_next_buf[filled] = greedy_choice(b_next, w, feats).phi
 
         filled += 1
         n += 1
@@ -325,10 +324,8 @@ def solve_lspi(
                 preload=preload,
                 action_cache=True,
                 cache_max=200_000,
-                move_cache_max=250_000,
             )
         else:
-            # move_cache: LegalMoveCache = LegalMoveCache(max_size=250_000)
             action_cache: ActionPhiCache = ActionPhiCache(feats, max_size=200_000)
 
         for it in range(cfg.max_iters):
@@ -352,7 +349,6 @@ def solve_lspi(
                     show_progress=verbose,
                     total_hint=total_hint,
                     desc=f"LSPI accumulate {it+1}/{cfg.max_iters}",
-                    # move_cache=move_cache,
                 )
 
             A_reg = A + cfg.reg * I
@@ -367,8 +363,9 @@ def solve_lspi(
             w = w_new
 
             if verbose:
-                print(f"Action cache: hits={action_cache.hits}, misses={action_cache.misses}, "
-                      f"hit rate={action_cache.hits / max(1, action_cache.hits + action_cache.misses):.3%}")
+                if pool is None:
+                    print(f"Action cache: hits={action_cache.hits}, misses={action_cache.misses}, "
+                        f"hit rate={action_cache.hits / max(1, action_cache.hits + action_cache.misses):.3%}")
 
                 if tqdm is not None:
                     tqdm.write(f"[LSPI] iter {it+1}/{cfg.max_iters}  |Δw|={delta:.3e}")
@@ -389,8 +386,6 @@ def solve_lspi(
         if pool is not None:
             pool.close()
             
-    # print(f"Move cache: hits={move_cache.hits}, misses={move_cache.misses}, hit rate={move_cache.hits / max(1, move_cache.hits + move_cache.misses):.3%}")
-
     return w
 
 
@@ -439,14 +434,12 @@ def _worker_loop_pinned(
     preload: bool,
     action_cache: bool,
     cache_max: int,
-    move_cache_max: int = 250_000,
 ) -> None:
     # imports inside subprocess
     from chess_rl.features.registry import get as get_features
 
     feats = get_features(feature_name)
     b_tmp = Board()
-    move_cache = LegalMoveCache(max_size=move_cache_max)
 
     CHUNK = 4096  # tune: 2048/4096/8192
     Phi_next_buf = np.empty((CHUNK, feats.spec.dim), dtype=np.float64)
@@ -527,7 +520,7 @@ def _worker_loop_pinned(
                             continue
                         fen = samples_mem.fen_next[start + j]
                         b_tmp.init_board(fen)
-                        Phi_next[j] = greedy_choice(b_tmp, w, feats, move_cache).phi
+                        Phi_next[j] = greedy_choice(b_tmp, w, feats).phi
 
                 # BLAS update
                 # diff_tmp[:B] = Phi - gamma*Phi_next
@@ -599,7 +592,6 @@ class PinnedShardPool:
         preload:        bool = True,
         action_cache:   bool = False,
         cache_max:      int = 50_000,
-        move_cache_max: int = 250_000,
     ) -> None:
         self.feature_name = feature_name
         self.cfg = cfg
@@ -607,7 +599,6 @@ class PinnedShardPool:
         self.preload = preload
         self.action_cache = action_cache
         self.cache_max = cache_max
-        self.move_cache_max = move_cache_max
 
         shard_paths = sorted(shard_paths)
         self.buckets: list[list[str]] = [shard_paths[i::workers] for i in range(workers)]
@@ -625,7 +616,6 @@ class PinnedShardPool:
                     preload=preload,
                     action_cache=action_cache,
                     cache_max=cache_max,
-                    move_cache_max=move_cache_max
                 ),
                 daemon=True,
             )
