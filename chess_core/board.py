@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Final, Sequence
 from dataclasses import dataclass
 import random
 
@@ -107,10 +107,11 @@ def _ray_from(sq: int, step: int) -> list[int]:
         out.append(nxt)
         cur = nxt
 
-RAYS = [[None]*8 for _ in range(64)]
-for sq in range(64):
-    for i, step in enumerate(DIRS):
-        RAYS[sq][i] = _ray_from(sq, step)
+# used tuple instead of list for immutability and better cache friendliness
+RAYS: Final[tuple[tuple[tuple[int, ...], ...], ...]] = tuple(
+    tuple(tuple(_ray_from(sq, step)) for step in DIRS)
+    for sq in range(64)
+)
 
 # indices in RAYS
 E,W,N,S,NE,NW,SE,SW = range(8)
