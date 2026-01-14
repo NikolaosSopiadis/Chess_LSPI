@@ -106,24 +106,9 @@ class V1BasicFeatures:
         phi[15] = 0.0
         return phi
 
-    def phi_sa_after_move(self, pre_zkey: int, move: Move, board_after: Board) -> np.ndarray:
-        """
-        Compute phi for (state, move) when the board is ALREADY in the afterstate.
-        pre_zkey is board_before_move._zkey (so caching matches phi_sa()).
-        """
-        key = (pre_zkey, _move_key(move))
-        cache = self._cache
-        phi = cache.get(key)
-        if phi is not None:
-            cache.move_to_end(key)
-            return phi
-
+    def phi_afterstate(self, board_after: Board) -> np.ndarray:
+        # no caching: ActionPhiCache is the cache now
         phi = self._phi_afterstate(board_after)
         if phi.dtype != self._dtype:
             phi = phi.astype(self._dtype, copy=False)
-
-        cache[key] = phi
-        cache.move_to_end(key)
-        if len(cache) > self._cache_size:
-            cache.popitem(last=False)
         return phi
