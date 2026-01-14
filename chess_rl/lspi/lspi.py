@@ -18,6 +18,8 @@ Float64Array = npt.NDArray[np.float64]
 Float32Array = npt.NDArray[np.float32]
 
 from chess_core.board import Board
+from chess_core.move import Move, F_CASTLE
+
 from chess_rl.features.base import FeatureExtractor
 from chess_rl.policy.greedy import greedy_choice
 
@@ -233,8 +235,9 @@ def _accumulate_A_b_mem(
     if action_cache is None:
         action_cache = ActionPhiCache(feats, max_size=200_000)
 
-    w32 = w.astype(np.float32, copy=False)  # alloc once per iteration
-
+    w32 = np.empty((d,), dtype=np.float32)
+    np.copyto(w32, w, casting="unsafe")  # float64 -> float32 no alloc
+    
     CHUNK = 4096
     Phi_next_buf = np.empty((CHUNK, d), dtype=np.float64)
     diff_tmp = np.empty((CHUNK, d), dtype=np.float64)
@@ -459,27 +462,51 @@ def _worker_loop_pinned(
         entry = lru.get(k)
         if entry is None:
             b_tmp.init_board(fen)
-            moves = b_tmp.get_all_legal_moves()
-            if not moves:
-                phis32 = np.zeros((1, feats.spec.dim), dtype=np.float32)
-                entry = _ActionPhiCacheEntry(b_tmp.get_is_white_to_move(), phis32)
-            else:
-                phis32 = np.empty((len(moves), feats.spec.dim), dtype=np.float32)
-                for i, m in enumerate(moves):
-                    phis32[i] = feats.phi_sa(b_tmp, m)   # copies into row
-                entry = _ActionPhiCacheEntry(b_tmp.get_is_white_to_move(), phis32)
+            stm_white = b_tmp._is_white_to_move
+            pre_zkey = b_tmp._zkey
 
+            pseudo = _all_pseudo_moves(b_tmp)
+            d = feats.spec.dim
+
+            phis32 = np.empty((max(1, len(pseudo)), d), dtype=np.float32)
+            cnt = 0
+
+            for m in pseudo:
+                if (m.flags & F_CASTLE) and (not _castle_ok_pre(b_tmp, stm_white, m)):
+                    continue
+
+                u = b_tmp._do_move(m)
+                try:
+                    king_sq = b_tmp._white_king_sq if stm_white else b_tmp._black_king_sq
+                    if king_sq == -1:
+                        continue
+                    if b_tmp.is_square_attacked(king_sq, by_white=not stm_white):
+                        continue
+
+                    phi = cast(Any, feats).phi_sa_after_move(pre_zkey, m, b_tmp)
+                    phis32[cnt] = phi
+                    cnt += 1
+                finally:
+                    b_tmp._undo_move(u)
+
+            if cnt == 0:
+                phis32 = np.zeros((1, d), dtype=np.float32)
+            else:
+                phis32 = phis32[:cnt]
+
+            entry = _ActionPhiCacheEntry(stm_white, phis32)
             lru[k] = entry
             if cache_max > 0 and len(lru) > cache_max:
-                lru.popitem(last=False)  # evict oldest
+                lru.popitem(last=False)
         else:
-            # mark as most recently used
-            lru.move_to_end(k)
+            lru.move_to_end(k)  # <-- restore LRU behavior
 
         scores = entry.phis @ w32
         idx = int(np.argmax(scores) if entry.white_to_move else np.argmin(scores))
         # return np.asarray(entry.phis[idx], dtype=np.float64)
         return entry.phis[idx]
+
+    w32 = np.empty((feats.spec.dim,), dtype=np.float32)
 
     while True:
         msg = in_q.get()
@@ -487,7 +514,7 @@ def _worker_loop_pinned(
             return
 
         iter_idx, w = msg
-        w32 = w.astype(np.float32, copy=False)   # cast from float64 to float32
+        np.copyto(w32, w, casting="unsafe") # cast float64 -> float32 with no mem alloc
         d = feats.spec.dim
         A = np.zeros((d, d), dtype=np.float64)
         b = np.zeros((d,), dtype=np.float64)
@@ -579,6 +606,46 @@ def _worker_loop_pinned(
 def fen_key(fen: str) -> str:
     parts = fen.split()
     return " ".join(parts[:4])  # placement, active, castling, ep
+
+
+def _all_pseudo_moves(b: Board) -> list[Move]:
+    # Collect pseudolegal moves for side-to-move.
+    out: list[Move] = []
+    for src in range(64):
+        ms = b.get_pseudolegal_moves(src)
+        if ms:
+            out.extend(ms)
+    return out
+
+
+def _castle_ok_pre(b: Board, stm_white: bool, m: Move) -> bool:
+    # Mirrors the extra castling restriction in Board.get_legal_moves():
+    # not out of / through / into check.
+    king_sq0 = b._white_king_sq if stm_white else b._black_king_sq
+    if king_sq0 == -1:
+        return False
+
+    enemy_is_white = not stm_white
+
+    # "out of check"
+    if b.is_square_attacked(king_sq0, by_white=enemy_is_white):
+        return False
+
+    f_src = m.src_square & 7
+    r_src = m.src_square >> 3
+    f_dst = m.dst_square & 7
+
+    if f_dst > f_src:  # kingside
+        through = [f_src + 1 + (r_src << 3), f_src + 2 + (r_src << 3)]
+    else:              # queenside
+        through = [f_src - 1 + (r_src << 3), f_src - 2 + (r_src << 3)]
+
+    # "through check"
+    for sq in through:
+        if b.is_square_attacked(sq, by_white=enemy_is_white):
+            return False
+
+    return True
 
 
 class PinnedShardPool:
@@ -684,23 +751,48 @@ class ActionPhiCache:
         self.misses = 0
 
     def best_phi32(self, fen: str, w32: Float32Array) -> Float32Array:
-        k = fen_key(fen)  # your current fen_key()
+        k = fen_key(fen)
         entry = self.lru.get(k)
         if entry is None:
             self.misses += 1
 
-            self.b.init_board(fen)
-            moves = self.b.get_all_legal_moves()
+            b = self.b
+            b.init_board(fen)
+            stm_white = b._is_white_to_move
+            pre_zkey = b._zkey
+
+            pseudo = _all_pseudo_moves(b)   # <-- FIX: Board API needs src
             d = self.feats.spec.dim
 
-            if not moves:
+            phis32 = np.empty((max(1, len(pseudo)), d), dtype=np.float32)
+            cnt = 0
+
+            for m in pseudo:
+                # Castling precheck (must match your Board.get_legal_moves)
+                if (m.flags & F_CASTLE) and (not _castle_ok_pre(b, stm_white, m)):
+                    continue
+
+                u = b._do_move(m)
+                try:
+                    # legality: mover's king not in check after move
+                    king_sq = b._white_king_sq if stm_white else b._black_king_sq
+                    if king_sq == -1:
+                        continue
+                    if b.is_square_attacked(king_sq, by_white=not stm_white):
+                        continue
+
+                    phi = cast(Any, self.feats).phi_sa_after_move(pre_zkey, m, b)
+                    phis32[cnt] = phi
+                    cnt += 1
+                finally:
+                    b._undo_move(u)
+
+            if cnt == 0:
                 phis32 = np.zeros((1, d), dtype=np.float32)
-                entry = _ActionPhiCacheEntry(self.b.get_is_white_to_move(), phis32)
             else:
-                phis32 = np.empty((len(moves), d), dtype=np.float32)
-                for i, m in enumerate(moves):
-                    phis32[i] = self.feats.phi_sa(self.b, m)  # float64 -> cast to float32 row
-                entry = _ActionPhiCacheEntry(self.b.get_is_white_to_move(), phis32)
+                phis32 = phis32[:cnt]
+
+            entry = _ActionPhiCacheEntry(stm_white, phis32)
 
             self.lru[k] = entry
             self.lru.move_to_end(k)
