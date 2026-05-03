@@ -69,6 +69,9 @@ def _process_one_puzzle(
 
         # features for (s,a): afterstate features (uses do/undo internally)
         phi = feats.phi_sa(b, move)
+        
+        fen_before = b.to_fen()
+        white_to_move_before = b.get_is_white_to_move()
 
         # advance to next
         b._do_move(move)
@@ -77,7 +80,8 @@ def _process_one_puzzle(
         pot1 = material_potential(b)
 
         r_terminal = _terminal_reward_from_after(b, done, reason)
-        r = float(r_terminal + reward_alpha * (pot1 - pot0))
+        r_material = reward_alpha * (pot1 - pot0)
+        r = float(r_terminal + r_material)
 
         rec = {
             "phi": phi.tolist(),
@@ -97,6 +101,16 @@ def _process_one_puzzle(
             "puzzle_ply_index": ply_index,
             "uci": uci,
             "skipped_setup_uci": setup_uci,
+
+            # reward debugging
+            "fen_before": fen_before,
+            "white_to_move_before": bool(white_to_move_before),
+            "material_before": float(pot0),
+            "material_after": float(pot1),
+            "material_delta": float(pot1 - pot0),
+            "reward_material": float(r_material),
+            "reward_terminal": float(r_terminal),
+            "terminal_reason": reason,
         }
         out.append(rec)
 
