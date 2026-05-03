@@ -5,10 +5,12 @@ from pathlib import Path
 from chess_rl.agents.base import Agent
 from chess_rl.agents.random import RandomAgent
 from chess_rl.agents.lspi_v1 import LSPIV1Agent
+from chess_rl.agents.material_greedy import MaterialGreedyAgent
 
 
 HUMAN = "Human"
 RANDOM = "Random legal"
+GREEDY = "Material greedy"
 LSPI_V1 = "LSPI v1"
 
 # Adjust this path whenever you want to test a different checkpoint.
@@ -19,6 +21,7 @@ def player_options() -> list[str]:
     return [
         HUMAN,
         RANDOM,
+        GREEDY,
         LSPI_V1,
     ]
 
@@ -34,6 +37,9 @@ def make_player(player_id: str) -> Agent | None:
 
     if player_id == RANDOM:
         return RandomAgent()
+
+    if player_id == GREEDY:
+        return MaterialGreedyAgent()
 
     if player_id == LSPI_V1:
         if not LSPI_V1_CHECKPOINT.exists():
