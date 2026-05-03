@@ -111,6 +111,23 @@ class Sidebar:
         )
         y += 36 + self.GAP
 
+        self._history_label = pgg.elements.UILabel(
+            relative_rect=pg.Rect(self.PAD, y, max(1, width - 2 * self.PAD), 24),
+            text="Move History",
+            manager=manager,
+            container=self._sidebar,
+        )
+        y += 24
+
+        history_h = 160
+        self._history_box = pgg.elements.UITextBox(
+            html_text=_to_html_lines("(no moves yet)", self._wrap_chars),
+            relative_rect=pg.Rect(self.PAD, y, max(1, width - 2 * self.PAD), history_h),
+            manager=manager,
+            container=self._sidebar,
+        )
+        y += history_h + self.GAP
+
         # Debug panel fills remaining space
         debug_h = max(80, height - y - self.PAD)
         self._debug_box = pgg.elements.UITextBox(
@@ -181,6 +198,15 @@ class Sidebar:
         self._load_fen_button.set_dimensions((w, 36))
         y += 36 + self.GAP
 
+        self._history_label.set_relative_position((self.PAD, y))
+        self._history_label.set_dimensions((w, 24))
+        y += 24
+
+        history_h = min(180, max(100, new_height // 5))
+        self._history_box.set_relative_position((self.PAD, y))
+        self._history_box.set_dimensions((w, history_h))
+        y += history_h + self.GAP
+        
         debug_h = max(80, new_height - y - self.PAD)
         self._debug_box.set_relative_position((self.PAD, y))
         self._debug_box.set_dimensions((w, debug_h))
@@ -196,6 +222,9 @@ class Sidebar:
 
     def get_black_player_id(self) -> str:
         return self._dropdown_value(self._black_player_dropdown)
+
+    def set_history(self, text: str) -> None:
+        self._history_box.set_text(_to_html_lines(text, self._wrap_chars))
 
 
 def _wrap_debug_line(line: str, width: int) -> list[str]:

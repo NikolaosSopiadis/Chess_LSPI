@@ -6,13 +6,29 @@ import pygame_gui as pgg
 from gui.view.main_window import MainWindow
 from chess_core.piece import Piece as p     
 from chess_core.board import Board
-from chess_core.move import Move
+from chess_core.move import (
+    Move,
+    F_CASTLE,
+    PROMO_NONE,
+    PROMO_QUEEN,
+    PROMO_ROOK,
+    PROMO_BISHOP,
+    PROMO_KNIGHT,
+)
 
 from chess_rl.agents.base import Agent
 from chess_rl.agents.registry import HUMAN, player_options, make_player
 
+from dataclasses import dataclass
+
 # type-only, no runtime imports
 # if TYPE_CHECKING:
+
+@dataclass(frozen=True, slots=True)
+class MoveRecord:
+    move: Move
+    mover_white: bool
+    notation: str
     
 class Controller:
     
@@ -36,6 +52,9 @@ class Controller:
         self._last_agent_move_ms: int = 0
         
         self._grid_size = self._ranks * self._files
+
+        self._move_history: list[MoveRecord] = []
+        self._last_move: Move | None = None
         
         self._sync_sidebar()
 
@@ -177,9 +196,21 @@ class Controller:
         return [m for m in self.get_moves(src, legal=legal) if m.dst_square == dst]
 
     def make_move(self, move: Move) -> bool:
+        mover_white = self._model.get_is_white_to_move()
+        notation = self._format_move_notation(move)
+
         ok = self._model.make_move(move)
         if ok:
+            self._last_move = move
+            self._move_history.append(
+                MoveRecord(
+                    move=move,
+                    mover_white=mover_white,
+                    notation=notation,
+                )
+            )
             self._sync_sidebar()
+
         return ok
 
     def get_game_end_state(self) -> tuple[bool, str]:
@@ -220,6 +251,7 @@ class Controller:
         done, reason = self._model.game_end_state()
         status = override_status if override_status is not None else ("game over: " + reason if done else "playing")
         self._view._sidebar.set_status(status)
+        self._view._sidebar.set_history(self.get_move_history_text())
         self._view._sidebar.set_debug(self.get_debug_text())
 
     def new_game(
@@ -245,6 +277,9 @@ class Controller:
         except ValueError as e:
             self._sync_sidebar(override_status=f"bad FEN: {e}")
             return False
+
+        self._move_history.clear()
+        self._last_move = None
 
         self._last_agent_move_ms = pg.time.get_ticks()
 
@@ -307,3 +342,42 @@ class Controller:
             return
 
         self._view._board.on_move_committed()
+
+    def get_last_move(self) -> Move | None:
+        return self._last_move
+
+    def _format_move_notation(self, move: Move) -> str:
+        # Simple coordinate notation, not SAN.
+        # Examples: e2e4, e7e8=Q, O-O, O-O-O
+        if move.flags & F_CASTLE:
+            return "O-O" if (move.dst_square & 7) > (move.src_square & 7) else "O-O-O"
+
+        s = self._model.idx_to_algebraic(move.src_square) + self._model.idx_to_algebraic(move.dst_square)
+
+        if move.promotion != PROMO_NONE:
+            promo = {
+                PROMO_QUEEN: "Q",
+                PROMO_ROOK: "R",
+                PROMO_BISHOP: "B",
+                PROMO_KNIGHT: "N",
+            }.get(move.promotion, "?")
+            s += f"={promo}"
+
+        return s
+
+    def get_move_history_text(self) -> str:
+        if not self._move_history:
+            return "(no moves yet)"
+
+        lines: list[str] = []
+
+        # Group as:
+        # 1. e2e4 e7e5
+        # 2. g1f3 ...
+        for i in range(0, len(self._move_history), 2):
+            move_no = i // 2 + 1
+            white_move = self._move_history[i].notation
+            black_move = self._move_history[i + 1].notation if i + 1 < len(self._move_history) else ""
+            lines.append(f"{move_no}. {white_move} {black_move}".rstrip())
+
+        return "\n".join(lines)

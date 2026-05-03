@@ -198,6 +198,7 @@ class BoardWindow:
         # Clear
         self._overlay_surface.fill((0, 0, 0, 0))
 
+        self._draw_last_move()
         self._draw_hover()
         self._draw_selected()
         self._draw_picked_up_piece()
@@ -665,3 +666,16 @@ class BoardWindow:
             self._game_over_active = True
             self._game_over_reason = reason
             self._game_over_dirty = True
+
+    def _draw_last_move(self) -> None:
+        move = self._ctrl.get_last_move()
+        if move is None:
+            return
+
+        last_move_color: tuple[int, int, int, int] = (80, 180, 255, 90)
+
+        src_f, src_r = self._idx_to_f_r(move.src_square)
+        dst_f, dst_r = self._idx_to_f_r(move.dst_square)
+
+        self._draw_overlay_square(src_f, src_r, last_move_color)
+        self._draw_overlay_square(dst_f, dst_r, last_move_color)
