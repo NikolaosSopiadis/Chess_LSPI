@@ -38,6 +38,20 @@ except Exception:
 
 CheckpointCB = Callable[[int, Float64Array, float], None]
 
+_ALLOWED_REWARD_VERSIONS = {
+    None,
+    "v1_terminal_plus_potential",
+    "synthetic_material_delta_v1",
+    "pgn_terminal_plus_potential_v1",
+    "selfplay_terminal_plus_potential_v1",
+}
+
+
+def _check_reward_version(rec: dict) -> None:
+    rv = rec.get("reward_version")
+    if rv not in _ALLOWED_REWARD_VERSIONS:
+        raise ValueError(f"reward version mismatch: {rv!r}")
+
 @dataclass(frozen=True)
 class LSPIConfig:
     gamma: float = 0.99
@@ -82,8 +96,7 @@ def load_samples_mem(
                 f"Feature version mismatch: dataset={rec.get('feature_version')!r} "
                 f"vs feats={feats.spec.version!r}"
             )
-        if rec.get("reward_version") not in (None, "v1_terminal_plus_potential"):
-            raise ValueError("reward version mismatch ...")
+        _check_reward_version(rec)
 
         phis.append(np.asarray(rec["phi"], dtype=np.float64))
         rs.append(float(rec["r"]))
@@ -176,8 +189,7 @@ def _accumulate_A_b(
                 f"vs feats={feats.spec.version!r}"
             )
 
-        if rec.get("reward_version") not in (None, "v1_terminal_plus_potential"):
-            raise ValueError("reward version mismatch ...")
+        _check_reward_version(rec)
 
         # Fill buffers
         Phi_buf[filled] = rec["phi"]
@@ -409,8 +421,7 @@ def _load_shards_mem(
         for rec in iter_samples_jsonl_gz(sp):
             if rec.get("feature_version") != feats.spec.version:
                 raise ValueError("feature version mismatch")
-            if rec.get("reward_version") not in (None, "v1_terminal_plus_potential"):
-                raise ValueError("reward version mismatch")
+            _check_reward_version(rec)
 
             phis.append(np.asarray(rec["phi"], dtype=np.float64))
             rs.append(float(rec["r"]))
