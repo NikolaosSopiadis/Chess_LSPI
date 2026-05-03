@@ -134,12 +134,13 @@ class BoardWindow:
         if self._overlay_dirty:
             self._rebuild_overlay_surface()
 
-        # if self._promotion_dirty:
-            # self._rebuild_promotion_ui()
-        
+        # Compose layers once, in order
         self._composed_surface.blit(self._board_surface, (0, 0))
         self._composed_surface.blit(self._pieces_surface, (0, 0))
-        
+
+        if self._ctrl.is_reviewing_history():
+            self._draw_review_tint(self._composed_surface)
+
         if self._promotion_active:
             if self._promotion_dirty:
                 self._rebuild_promotion_ui()
@@ -679,3 +680,8 @@ class BoardWindow:
 
         self._draw_overlay_square(src_f, src_r, last_move_color)
         self._draw_overlay_square(dst_f, dst_r, last_move_color)
+
+    def _draw_review_tint(self, surface: pg.Surface) -> None:
+        tint = pg.Surface((self._width, self._height), pg.SRCALPHA)
+        tint.fill((120, 120, 120, 70))
+        surface.blit(tint, (0, 0))

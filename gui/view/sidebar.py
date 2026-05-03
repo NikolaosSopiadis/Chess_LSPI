@@ -57,6 +57,14 @@ class Sidebar:
         )
         y += 40 + self.GAP
 
+        self._flip_board_button = pgg.elements.UIButton(
+            relative_rect=pg.Rect(self.PAD, y, max(1, width - 2 * self.PAD), 36),
+            text="Flip Board",
+            manager=manager,
+            container=self._sidebar,
+        )
+        y += 36 + self.GAP
+
         self._white_player_label = pgg.elements.UILabel(
             relative_rect=pg.Rect(self.PAD, y, max(1, width - 2 * self.PAD), 24),
             text="White",
@@ -174,6 +182,10 @@ class Sidebar:
         self._new_game_button.set_dimensions((w, 40))
         y += 40 + self.GAP
 
+        self._flip_board_button.set_relative_position((self.PAD, y))
+        self._flip_board_button.set_dimensions((w, 36))
+        y += 36 + self.GAP
+
         self._white_player_label.set_relative_position((self.PAD, y))
         self._white_player_label.set_dimensions((w, 24))
         y += 24
@@ -206,7 +218,7 @@ class Sidebar:
         self._history_box.set_relative_position((self.PAD, y))
         self._history_box.set_dimensions((w, history_h))
         y += history_h + self.GAP
-        
+
         debug_h = max(80, new_height - y - self.PAD)
         self._debug_box.set_relative_position((self.PAD, y))
         self._debug_box.set_dimensions((w, debug_h))
@@ -225,6 +237,39 @@ class Sidebar:
 
     def set_history(self, text: str) -> None:
         self._history_box.set_text(_to_html_lines(text, self._wrap_chars))
+        self._scroll_text_box_to_bottom(self._history_box)
+
+    def _scroll_text_box_to_bottom(self, text_box) -> None:
+        """
+        pygame_gui does not expose one stable public API for this across versions,
+        so this tries the common scrollbar attributes/methods.
+        """
+        # Force rebuild now so the scrollbar knows the new text height.
+        try:
+            text_box.rebuild()
+        except Exception:
+            pass
+
+        scroll_bar = getattr(text_box, "scroll_bar", None)
+        if scroll_bar is None:
+            scroll_bar = getattr(text_box, "vert_scroll_bar", None)
+        if scroll_bar is None:
+            return
+
+        # pygame_gui common API
+        try:
+            scroll_bar.set_scroll_from_start_percentage(1.0)
+            return
+        except Exception:
+            pass
+
+        # Fallback: poke common internals
+        try:
+            scroll_bar.scroll_position = getattr(scroll_bar, "scrollable_height", scroll_bar.scroll_position)
+            scroll_bar.has_moved_recently = True
+            return
+        except Exception:
+            pass
 
 
 def _wrap_debug_line(line: str, width: int) -> list[str]:

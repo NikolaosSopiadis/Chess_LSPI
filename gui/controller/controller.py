@@ -5,7 +5,7 @@ import pygame_gui as pgg
 
 from gui.view.main_window import MainWindow
 from chess_core.piece import Piece as p     
-from chess_core.board import Board
+from chess_core.board import Board, BoardState
 from chess_core.move import (
     Move,
     F_CASTLE,
@@ -42,6 +42,9 @@ class Controller:
         
         self._view: MainWindow = MainWindow(self, 800*2, 600*2, "Chess")
         self._model: Board     = Board(ranks, files)
+
+        self._position_history: list[BoardState] = [self._model.get_state()]
+        self._history_view_idx: int = 0  # 0=start position, len-1=current position
         
         self._white_player_id: str = HUMAN
         self._black_player_id: str = HUMAN
@@ -109,10 +112,24 @@ class Controller:
                 self._state = self.STOPPED
             
             case pg.KEYDOWN:
-                
                 match event.key:
-                    case pg.K_q:
+                    case pg.K_q: # quit
                         self._state = self.STOPPED
+
+                    case pg.K_f: # flip board
+                        self.flip_board()
+
+                    case pg.K_LEFT: # step back in history
+                        self.history_previous()
+
+                    case pg.K_RIGHT: # step forward in history
+                        self.history_next()
+
+                    case pg.K_UP: # step to latest/current position in history
+                        self.history_latest()
+
+                    case pg.K_DOWN: # step to first position in history
+                        self.history_first()
             
             case pg.MOUSEMOTION:
                 self._view.on_mouse_move(event.pos)
@@ -138,6 +155,8 @@ class Controller:
                         white_player_id=sb.get_white_player_id(),
                         black_player_id=sb.get_black_player_id(),
                     )
+                elif event.ui_element == sb._flip_board_button:
+                    self.flip_board()
 
             case pgg.UI_TEXT_ENTRY_FINISHED:
                 sb = self._view._sidebar
@@ -196,6 +215,11 @@ class Controller:
         return [m for m in self.get_moves(src, legal=legal) if m.dst_square == dst]
 
     def make_move(self, move: Move) -> bool:
+        # Do not allow moves from an old reviewed position.
+        if self.is_reviewing_history():
+            self._sync_sidebar(override_status="reviewing history; press Up to return to current position")
+            return False
+
         mover_white = self._model.get_is_white_to_move()
         notation = self._format_move_notation(move)
 
@@ -209,6 +233,10 @@ class Controller:
                     notation=notation,
                 )
             )
+
+            self._position_history.append(self._model.get_state())
+            self._history_view_idx = len(self._position_history) - 1
+
             self._sync_sidebar()
 
         return ok
@@ -245,11 +273,20 @@ class Controller:
             f"Halfmove: {b._halfmove_clock}\n"
             f"Zobrist: {b._zkey:#018x}\n"
             f"Repetition count (current): {rep}\n"
+            f"\nHistory view: {self._history_view_idx}/{len(self._position_history) - 1}\n"
+            f"Review mode: {self.is_reviewing_history()}\n"
         )
 
     def _sync_sidebar(self, *, override_status: str | None = None) -> None:
         done, reason = self._model.game_end_state()
-        status = override_status if override_status is not None else ("game over: " + reason if done else "playing")
+
+        if override_status is not None:
+            status = override_status
+        elif self.is_reviewing_history():
+            status = f"reviewing history: ply {self._history_view_idx}/{len(self._position_history) - 1}"
+        else:
+            status = "game over: " + reason if done else "playing"
+
         self._view._sidebar.set_status(status)
         self._view._sidebar.set_history(self.get_move_history_text())
         self._view._sidebar.set_debug(self.get_debug_text())
@@ -281,6 +318,9 @@ class Controller:
         self._move_history.clear()
         self._last_move = None
 
+        self._position_history = [self._model.get_state()]
+        self._history_view_idx = 0
+
         self._last_agent_move_ms = pg.time.get_ticks()
 
         self._view._board.on_position_changed()
@@ -305,6 +345,8 @@ class Controller:
         return True
 
     def is_human_turn(self) -> bool:
+        if self.is_reviewing_history():
+            return False
         return self._current_agent() is None
 
     def _current_agent(self) -> Agent | None:
@@ -314,6 +356,9 @@ class Controller:
         """
         Called once per frame. Lets agent players make a move when it is their turn.
         """
+        if self.is_reviewing_history():
+            return
+
         done, _reason = self._model.game_end_state()
         if done:
             return
@@ -344,7 +389,15 @@ class Controller:
         self._view._board.on_move_committed()
 
     def get_last_move(self) -> Move | None:
-        return self._last_move
+        # position_history[0] is the initial board, produced by no move.
+        if self._history_view_idx <= 0:
+            return None
+
+        move_idx = self._history_view_idx - 1
+        if move_idx >= len(self._move_history):
+            return None
+
+        return self._move_history[move_idx].move
 
     def _format_move_notation(self, move: Move) -> str:
         # Simple coordinate notation, not SAN.
@@ -374,10 +427,55 @@ class Controller:
         # Group as:
         # 1. e2e4 e7e5
         # 2. g1f3 ...
+        
+        # When viewing blacks first move:
+        # 1. e2e4 >e7e5
+        # 2. g1f3 ...
         for i in range(0, len(self._move_history), 2):
             move_no = i // 2 + 1
-            white_move = self._move_history[i].notation
-            black_move = self._move_history[i + 1].notation if i + 1 < len(self._move_history) else ""
+
+            white_marker = ">" if self._history_view_idx == i + 1 else " "
+            black_marker = ">" if self._history_view_idx == i + 2 else " "
+
+            white_move = f"{white_marker}{self._move_history[i].notation}"
+
+            if i + 1 < len(self._move_history):
+                black_move = f"{black_marker}{self._move_history[i + 1].notation}"
+            else:
+                black_move = ""
+
             lines.append(f"{move_no}. {white_move} {black_move}".rstrip())
 
         return "\n".join(lines)
+
+    def is_reviewing_history(self) -> bool:
+        return self._history_view_idx != len(self._position_history) - 1
+
+    def _set_history_view_idx(self, idx: int) -> None:
+        if not self._position_history:
+            return
+
+        idx = max(0, min(idx, len(self._position_history) - 1))
+        if idx == self._history_view_idx:
+            return
+
+        self._history_view_idx = idx
+        self._model.set_state(self._position_history[idx])
+
+        self._view._board.on_position_changed()
+        self._sync_sidebar()
+
+    def history_previous(self) -> None:
+        self._set_history_view_idx(self._history_view_idx - 1)
+
+    def history_next(self) -> None:
+        self._set_history_view_idx(self._history_view_idx + 1)
+
+    def history_latest(self) -> None:
+        self._set_history_view_idx(len(self._position_history) - 1)
+
+    def history_first(self) -> None:
+        self._set_history_view_idx(0)
+
+    def flip_board(self) -> None:
+        self._view._board.flip_board()

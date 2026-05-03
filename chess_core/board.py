@@ -183,9 +183,12 @@ class BoardState:
     castling_rights: int
     en_passant_target: int | None
     halfmove_clock: int
+    fullmove_number: int
     white_king_sq: int
     black_king_sq: int
     zkey: int
+    rep_counts: tuple[tuple[int, int], ...]
+    rep_stack: tuple[int, ...]
 
 # For Zobrist hashing
 _ZRAND = random.Random(0xC0FFEE1234)  # deterministic
@@ -1142,9 +1145,12 @@ class Board:
             castling_rights=self._castling_rights,
             en_passant_target=self._en_passant_target,
             halfmove_clock=self._halfmove_clock,
+            fullmove_number=getattr(self, "_fullmove_number", 1),
             white_king_sq=self._white_king_sq,
             black_king_sq=self._black_king_sq,
             zkey=self._zkey,
+            rep_counts=tuple(self._rep_counts.items()),
+            rep_stack=tuple(self._rep_stack),
         )
 
     def set_state(self, s: "BoardState") -> None:
@@ -1153,15 +1159,16 @@ class Board:
         self._castling_rights = s.castling_rights
         self._en_passant_target = s.en_passant_target
         self._halfmove_clock = s.halfmove_clock
+        self._fullmove_number = s.fullmove_number
         self._white_king_sq = s.white_king_sq
         self._black_king_sq = s.black_king_sq
         self._zkey = s.zkey
-        
+
         self._recompute_mat()
 
         # Make do/undo safe after restoring
-        self._rep_stack = [self._zkey]
-        self._rep_counts = {self._zkey: 1}
+        self._rep_counts = dict(s.rep_counts)
+        self._rep_stack = list(s.rep_stack)
         
     def _mat_inc(self, pc: int) -> None:
         i = MAT_INDEX[pc]
