@@ -24,11 +24,9 @@ class MainWindow:
         self._height: int = height
         self._title:  str = title
         
-        self._sidebar_width:  int = width - height
-        self._sidebar_height: int = height
-        
-        self._board_width:  int = height
-        self._board_height: int = height
+        self._board_width, self._board_height, self._sidebar_width, self._sidebar_height = (
+            self._compute_layout(width, height)
+        )
         
         self._clock:        pg.Clock = pg.Clock()
         self._manager: pgg.UIManager = pgg.UIManager((width, height), theme_path="assets/theme.json")
@@ -64,17 +62,28 @@ class MainWindow:
         pg.display.flip()
         
     def on_resize(self, new_width: int, new_height: int) -> None:
-        self._width          = new_width
-        self._height         = new_height
-        self._board_width    = new_height
-        self._board_height   = new_height
-        self._sidebar_width  = new_width - new_height
-        self._sidebar_height = new_height
-        
+        self._width = new_width
+        self._height = new_height
+
+        self._board_width, self._board_height, self._sidebar_width, self._sidebar_height = (
+            self._compute_layout(new_width, new_height)
+        )
+
+        print(
+            f"resize: window=({new_width},{new_height}) "
+            f"board=({self._board_width},{self._board_height}) "
+            f"sidebar=({self._sidebar_width},{self._sidebar_height})"
+        )
+
         self._manager.set_window_resolution((new_width, new_height))
 
         self._board.resize(self._board_width, self._board_height)
-        self._sidebar.resize(self._board_width, 0, self._sidebar_width, self._sidebar_height)
+        self._sidebar.resize(
+            self._board_width,
+            0,
+            self._sidebar_width,
+            self._sidebar_height,
+        )
 
     def on_mouse_down(self, mouse_pos: tuple[float, float]) -> None:
         return self._board.on_mouse_down(mouse_pos)
@@ -84,3 +93,15 @@ class MainWindow:
 
     def on_mouse_up(self, mouse_pos: tuple[float, float]) -> None:
         return self._board.on_mouse_up(mouse_pos)
+
+    def _compute_layout(self, width: int, height: int) -> tuple[int, int, int, int]:
+        min_sidebar = 320
+
+        if width <= min_sidebar + 100:
+            # Very small window: still reserve sidebar, shrink board heavily.
+            board_size = max(100, width - min_sidebar)
+        else:
+            board_size = min(height, width - min_sidebar)
+
+        sidebar_width = max(min_sidebar, width - board_size)
+        return board_size, board_size, sidebar_width, height

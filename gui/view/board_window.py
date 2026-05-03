@@ -334,6 +334,9 @@ class BoardWindow:
             self._game_over_surface.fill((0, 0, 0, 0))
             self._needs_redraw = True
             return
+
+        if not self._ctrl.is_human_turn():
+            return
         
         self._mouse_clicked   = True
         self._mouse_pos = mouse_pos
@@ -389,6 +392,13 @@ class BoardWindow:
 
     def on_mouse_up(self, mouse_pos: tuple[float, float]) -> None:
         if self._game_over_active:
+            return
+
+        if not self._ctrl.is_human_turn():
+            self._mouse_clicked = False
+            self._picked_up_piece = -1
+            self._overlay_dirty = True
+            self._needs_redraw = True
             return
 
         self._mouse_clicked = False
@@ -526,9 +536,8 @@ class BoardWindow:
             return
 
         # Otherwise commit the single (or first) non-promotion move
-        self._ctrl.make_move(cands[0])
-        self._after_move_commit()
-        self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
+        if self._ctrl.make_move(cands[0]):
+            self.on_move_committed()
         
     # TODO: clean up promotion ui code
     def _handle_promotion_click(self, mouse_pos: tuple[float, float]) -> None:
@@ -547,31 +556,13 @@ class BoardWindow:
         # Find which button
         for rect, move in zip(self._promotion_rects, self._promotion_options):
             if rect.collidepoint(lx, ly):
-                self._ctrl.make_move(move)
-                self._exit_promotion_mode()
-                self._after_move_commit()
-                self._pieces_dirty = self._overlay_dirty = self._needs_redraw = True
+                if self._ctrl.make_move(move):
+                    self._exit_promotion_mode()
+                    self.on_move_committed()
                 break
 
     def _to_local(self, pos: tuple[float, float]) -> tuple[float, float]:
         return (pos[0] - self._board_rect.left, pos[1] - self._board_rect.top)
-
-    def _after_move_commit(self) -> None:
-        """Call after a move is successfully committed to the controller."""
-        done, reason = self._ctrl.get_game_end_state()
-        if not done:
-            return
-
-        self._game_over_active = True
-        self._game_over_reason = reason
-        self._game_over_dirty = True
-        self._needs_redraw = True
-
-        # Optional: clear selection so the board looks "clean"
-        self._selected_idx = -1
-        self._legal_dests.clear()
-        self._picked_up_piece = -1
-        self._mouse_clicked = False
 
     def _format_game_over_text(self) -> str:
         reason = self._game_over_reason
@@ -649,3 +640,28 @@ class BoardWindow:
         self._pieces_dirty = True
         self._overlay_dirty = True
         self._needs_redraw = True
+        
+        # New games clear game-over overlay
+        self._game_over_active = False
+        self._game_over_reason = ""
+        self._game_over_surface.fill((0, 0, 0, 0))
+        self._game_over_dirty = True
+
+    def on_move_committed(self) -> None:
+        """
+        Called after Controller successfully commits a move, whether from human or agent.
+        """
+        self._selected_idx = -1
+        self._legal_dests.clear()
+        self._picked_up_piece = -1
+        self._mouse_clicked = False
+
+        self._pieces_dirty = True
+        self._overlay_dirty = True
+        self._needs_redraw = True
+
+        done, reason = self._ctrl.get_game_end_state()
+        if done:
+            self._game_over_active = True
+            self._game_over_reason = reason
+            self._game_over_dirty = True

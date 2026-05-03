@@ -24,6 +24,7 @@ class Game:
             for event in pg.event.get():
                 self._ctrl.handle_event(event)
                     
+            self._ctrl.update()
             self._view.draw()
             
             # now = pg.time.get_ticks()
