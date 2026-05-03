@@ -69,12 +69,6 @@ class MainWindow:
             self._compute_layout(new_width, new_height)
         )
 
-        print(
-            f"resize: window=({new_width},{new_height}) "
-            f"board=({self._board_width},{self._board_height}) "
-            f"sidebar=({self._sidebar_width},{self._sidebar_height})"
-        )
-
         self._manager.set_window_resolution((new_width, new_height))
 
         self._board.resize(self._board_width, self._board_height)
