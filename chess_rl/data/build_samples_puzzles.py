@@ -34,8 +34,12 @@ def _process_one_puzzle(
     reward_alpha: float,
 ) -> List[Dict[str, Any]]:
     """
-    Worker: convert one puzzle into 1+ LSPI samples (one per ply in PV).
-    Returns a list of JSON-serializable dict records.
+    Worker: convert one Lichess puzzle into LSPI samples.
+
+    Important Lichess format detail:
+    - row.fen is before the opponent's setup/blunder move.
+    - row.moves_uci[0] is that setup/blunder move.
+    - row.moves_uci[1:] is the actual puzzle solution line.
     """
     feats = get_features(feature_name)
     reward_version = RewardSpec().version
@@ -45,7 +49,15 @@ def _process_one_puzzle(
 
     out: List[Dict[str, Any]] = []
 
-    for uci in row.moves_uci:
+    if not row.moves_uci:
+        return out
+
+    # Apply the setup/blunder move, but do NOT emit it as a training sample.
+    setup_uci = row.moves_uci[0]
+    setup_move = uci_to_move(b, setup_uci)
+    b._do_move(setup_move)
+
+    for ply_index, uci in enumerate(row.moves_uci[1:], start=1):
         done0, _ = b.game_end_state()
         if done0:
             break
@@ -80,6 +92,11 @@ def _process_one_puzzle(
             "puzzle_id": row.puzzle_id,
             "themes": sorted(row.themes),
             "rating": int(row.rating),
+
+            # debugging/provenance
+            "puzzle_ply_index": ply_index,
+            "uci": uci,
+            "skipped_setup_uci": setup_uci,
         }
         out.append(rec)
 
