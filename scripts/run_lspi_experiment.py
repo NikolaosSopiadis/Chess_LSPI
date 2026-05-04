@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 # -----------------------------
-# Constants we currently reuse
+# Constants
 # -----------------------------
 
 PGN_PATH = Path("data/raw/lichess/games/lichess_db_standard_rated_2025-12.pgn.zst")
@@ -33,7 +33,6 @@ MATERIAL_EVAL_STARTS = 100   # with --swap-colors => 200 games
 
 DATA_DIR = Path("data/processed/samples")
 CKPT_DIR = Path("data/processed/checkpoints")
-LOG_DIR = Path("data/processed/logs")
 
 
 # -----------------------------
@@ -51,8 +50,8 @@ def sample_label(n: int) -> str:
 def normalize_agent_name(name: str) -> str:
     """
     User-facing:
-      v3      -> v3_basic
-      v2_1    -> v2_1_basic
+      v3       -> v3_basic
+      v2_1     -> v2_1_basic
       v3_basic -> v3_basic
     """
     name = name.strip()
@@ -79,20 +78,22 @@ def dataset_feature_label(feature_name: str) -> str:
 
 def remove_file(path: Path) -> None:
     if path.exists():
+        print(f"[remove] {path}")
         path.unlink()
 
 
 def remove_dir(path: Path) -> None:
     if path.exists():
+        print(f"[remove] {path}")
         shutil.rmtree(path)
 
 
 def remove_checkpoint_family(path: Path) -> None:
     remove_file(path)
 
-    # lspi_xxx.npz -> lspi_xxx.iter*.npz
     pattern = f"{path.stem}.iter*.npz"
     for p in path.parent.glob(pattern):
+        print(f"[remove] {p}")
         p.unlink()
 
 
@@ -102,60 +103,23 @@ def shards_exist(shard_dir: Path, expected: int) -> bool:
     return len(list(shard_dir.glob("*.jsonl.gz"))) >= expected
 
 
-def write_header(log_f, title: str) -> None:
-    log_f.write("\n")
-    log_f.write("=" * 100 + "\n")
-    log_f.write(title + "\n")
-    log_f.write("=" * 100 + "\n")
-    log_f.flush()
+def run_step(desc: str, cmd: list[str], *, env: dict[str, str]) -> None:
+    print()
+    print("=" * 100)
+    print(desc)
+    print("=" * 100)
+    print("$ " + shlex.join(cmd))
+    print()
+
+    subprocess.run(cmd, env=env, check=True)
 
 
-def tail(path: Path, lines: int = 80) -> str:
-    try:
-        data = path.read_text(errors="replace").splitlines()
-    except FileNotFoundError:
-        return ""
-    return "\n".join(data[-lines:])
-
-
-def run_logged(
-    *,
-    desc: str,
-    cmd: list[str],
-    log_f,
-    log_path: Path,
-    env: dict[str, str],
-) -> None:
-    print(f"[run]  {desc}")
-    write_header(log_f, desc)
-    log_f.write("$ " + shlex.join(cmd) + "\n\n")
-    log_f.flush()
-
-    proc = subprocess.run(
-        cmd,
-        stdout=log_f,
-        stderr=subprocess.STDOUT,
-        env=env,
-        text=True,
-    )
-
-    log_f.flush()
-
-    if proc.returncode != 0:
-        print()
-        print(f"[fail] {desc}")
-        print(f"Log: {log_path}")
-        print()
-        print("Last log lines:")
-        print(tail(log_path))
-        raise SystemExit(proc.returncode)
-
-    print(f"[ok]   {desc}")
-
-
-def skip_logged(desc: str, log_f) -> None:
-    print(f"[skip] {desc}")
-    write_header(log_f, f"SKIP: {desc}")
+def skip_step(desc: str, path: Path) -> None:
+    print()
+    print("=" * 100)
+    print(f"SKIP: {desc}")
+    print("=" * 100)
+    print(f"Already exists: {path}")
 
 
 # -----------------------------
@@ -187,7 +151,12 @@ def main() -> None:
     ap.add_argument(
         "--force",
         action="store_true",
-        help="Regenerate data, shards, training, and overwrite existing log.",
+        help="Regenerate data, shards, and checkpoint even if they already exist.",
+    )
+    ap.add_argument(
+        "--skip-eval",
+        action="store_true",
+        help="Only build/train. Do not run inspect/position/random/material evaluations.",
     )
 
     args = ap.parse_args()
@@ -197,17 +166,22 @@ def main() -> None:
 
     pgn_samples = args.pgn
     anchor_samples = args.anchor
-    total_source_pgn_samples = pgn_samples + anchor_samples
+
+    if pgn_samples <= 0:
+        raise ValueError("--pgn must be positive")
+    if anchor_samples < 0:
+        raise ValueError("--anchor cannot be negative")
+
+    # We build enough PGN rows for both the PGN training subset and the anchor source.
+    source_pgn_samples = pgn_samples + anchor_samples
 
     pgn_label = sample_label(pgn_samples)
     anchor_label = sample_label(anchor_samples)
-    source_label = sample_label(total_source_pgn_samples)
+    source_label = sample_label(source_pgn_samples)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Source PGN file used both for PGN rows and anchor construction.
     pgn_src = DATA_DIR / f"pgn_{source_label}_{ds_label}_seed{SEED}.jsonl.gz"
 
     if anchor_samples > 0:
@@ -242,8 +216,6 @@ def main() -> None:
 
         exp_id = f"lspi_{feature_name}_pgn{pgn_label}_seed{SEED}"
 
-    log_path = LOG_DIR / f"{exp_id}.log"
-
     env = os.environ.copy()
     env["OMP_NUM_THREADS"] = "1"
     env["OPENBLAS_NUM_THREADS"] = "1"
@@ -251,7 +223,6 @@ def main() -> None:
 
     py = sys.executable
 
-    # Clean generated artifacts if requested.
     if args.force:
         remove_file(pgn_src)
         if anchor_src is not None:
@@ -263,185 +234,167 @@ def main() -> None:
         remove_checkpoint_family(ckpt)
 
     print()
-    print(f"Experiment: {exp_id}")
-    print(f"Feature:    {feature_name}")
-    print(f"PGN rows:   {pgn_samples}")
-    print(f"Anchors:    {anchor_samples}")
-    print(f"Log:        {log_path}")
-    print()
+    print("=" * 100)
+    print("EXPERIMENT")
+    print("=" * 100)
+    print(f"Experiment:        {exp_id}")
+    print(f"Feature:           {feature_name}")
+    print(f"Dataset label:     {ds_label}")
+    print(f"PGN rows:          {pgn_samples}")
+    print(f"Anchor rows:       {anchor_samples}")
+    print(f"Source PGN rows:   {source_pgn_samples}")
+    print(f"PGN source:        {pgn_src}")
+    print(f"Anchor source:     {anchor_src}")
+    print(f"Training dataset:  {train_src}")
+    print(f"Shard dir:         {shard_dir}")
+    print(f"Checkpoint:        {ckpt}")
 
-    with log_path.open("w", encoding="utf-8") as log_f:
-        write_header(log_f, "EXPERIMENT CONFIG")
-        log_f.write(f"experiment: {exp_id}\n")
-        log_f.write(f"feature_name: {feature_name}\n")
-        log_f.write(f"dataset_label: {ds_label}\n")
-        log_f.write(f"pgn_samples: {pgn_samples}\n")
-        log_f.write(f"anchor_samples: {anchor_samples}\n")
-        log_f.write(f"source_pgn_samples: {total_source_pgn_samples}\n")
-        log_f.write(f"pgn_src: {pgn_src}\n")
-        log_f.write(f"anchor_src: {anchor_src}\n")
-        log_f.write(f"train_src: {train_src}\n")
-        log_f.write(f"shard_dir: {shard_dir}\n")
-        log_f.write(f"checkpoint: {ckpt}\n")
-        log_f.flush()
+    # 1. Build PGN source dataset
+    if pgn_src.exists() and not args.force:
+        skip_step("build PGN source dataset", pgn_src)
+    else:
+        run_step(
+            "build PGN source dataset",
+            [
+                py,
+                "-m",
+                "scripts.build_dataset_pgn",
+                "--pgn",
+                str(PGN_PATH),
+                "--out",
+                str(pgn_src),
+                "--features",
+                feature_name,
+                "--min-elo",
+                str(MIN_ELO),
+                "--max-samples",
+                str(source_pgn_samples),
+            ],
+            env=env,
+        )
 
-        # 1. Build PGN source dataset
-        if pgn_src.exists() and not args.force:
-            skip_logged(f"build PGN source dataset: {pgn_src}", log_f)
+    # 2. Build material anchors
+    if anchor_samples > 0:
+        assert anchor_src is not None
+
+        if anchor_src.exists() and not args.force:
+            skip_step("build material anchors", anchor_src)
         else:
-            run_logged(
-                desc=f"build PGN source dataset: {pgn_src}",
-                cmd=[
+            run_step(
+                "build material anchors",
+                [
                     py,
                     "-m",
-                    "scripts.build_dataset_pgn",
-                    "--pgn",
-                    str(PGN_PATH),
-                    "--out",
-                    str(pgn_src),
-                    "--features",
-                    feature_name,
-                    "--min-elo",
-                    str(MIN_ELO),
-                    "--max-samples",
-                    str(total_source_pgn_samples),
-                ],
-                log_f=log_f,
-                log_path=log_path,
-                env=env,
-            )
-
-        # 2. Build material anchors, if requested
-        if anchor_samples > 0:
-            assert anchor_src is not None
-
-            if anchor_src.exists() and not args.force:
-                skip_logged(f"build material anchors: {anchor_src}", log_f)
-            else:
-                run_logged(
-                    desc=f"build material anchors: {anchor_src}",
-                    cmd=[
-                        py,
-                        "-m",
-                        "scripts.build_dataset_material_anchor",
-                        "--src",
-                        str(pgn_src),
-                        "--out",
-                        str(anchor_src),
-                        "--features",
-                        feature_name,
-                        "--max-samples",
-                        str(anchor_samples),
-                        "--seed",
-                        str(SEED),
-                        "--scale",
-                        "1.0",
-                        "--clip",
-                        "4.0",
-                    ],
-                    log_f=log_f,
-                    log_path=log_path,
-                    env=env,
-                )
-
-            # 3. Mix dataset
-            if train_src.exists() and not args.force:
-                skip_logged(f"mix dataset: {train_src}", log_f)
-            else:
-                run_logged(
-                    desc=f"mix dataset: {train_src}",
-                    cmd=[
-                        py,
-                        "-m",
-                        "scripts.mix_datasets",
-                        "--src",
-                        f"{pgn_src}:{pgn_samples}",
-                        "--src",
-                        f"{anchor_src}:{anchor_samples}",
-                        "--out",
-                        str(train_src),
-                        "--seed",
-                        str(SEED),
-                    ],
-                    log_f=log_f,
-                    log_path=log_path,
-                    env=env,
-                )
-
-        # 4. Split dataset
-        if shards_exist(shard_dir, SHARDS) and not args.force:
-            skip_logged(f"split dataset: {shard_dir}", log_f)
-        else:
-            run_logged(
-                desc=f"split dataset: {shard_dir}",
-                cmd=[
-                    py,
-                    "-m",
-                    "scripts.split_dataset",
+                    "scripts.build_dataset_material_anchor",
                     "--src",
-                    str(train_src),
-                    "--out-dir",
-                    str(shard_dir),
-                    "--shards",
-                    str(SHARDS),
-                ],
-                log_f=log_f,
-                log_path=log_path,
-                env=env,
-            )
-
-        # 5. Train
-        if ckpt.exists() and not args.force:
-            skip_logged(f"train LSPI: {ckpt}", log_f)
-        else:
-            run_logged(
-                desc=f"train LSPI: {ckpt}",
-                cmd=[
-                    py,
-                    "-m",
-                    "scripts.train_lspi",
-                    "--samples",
-                    str(train_src),
-                    "--shards-dir",
-                    str(shard_dir),
+                    str(pgn_src),
                     "--out",
-                    str(ckpt),
+                    str(anchor_src),
                     "--features",
                     feature_name,
-                    "--workers",
-                    str(WORKERS),
-                    "--preload",
-                    "--iters",
-                    str(ITERS),
-                    "--reg",
-                    REG,
-                    "--gamma",
-                    GAMMA,
-                    "--ckpt-every-iter",
+                    "--max-samples",
+                    str(anchor_samples),
+                    "--seed",
+                    str(SEED),
+                    "--scale",
+                    "1.0",
+                    "--clip",
+                    "4.0",
                 ],
-                log_f=log_f,
-                log_path=log_path,
                 env=env,
             )
 
+        # 3. Mix dataset
+        if train_src.exists() and not args.force:
+            skip_step("mix dataset", train_src)
+        else:
+            run_step(
+                "mix dataset",
+                [
+                    py,
+                    "-m",
+                    "scripts.mix_datasets",
+                    "--src",
+                    f"{pgn_src}:{pgn_samples}",
+                    "--src",
+                    f"{anchor_src}:{anchor_samples}",
+                    "--out",
+                    str(train_src),
+                    "--seed",
+                    str(SEED),
+                ],
+                env=env,
+            )
+
+    # 4. Split dataset
+    if shards_exist(shard_dir, SHARDS) and not args.force:
+        skip_step("split dataset", shard_dir)
+    else:
+        run_step(
+            "split dataset",
+            [
+                py,
+                "-m",
+                "scripts.split_dataset",
+                "--src",
+                str(train_src),
+                "--out-dir",
+                str(shard_dir),
+                "--shards",
+                str(SHARDS),
+            ],
+            env=env,
+        )
+
+    # 5. Train
+    if ckpt.exists() and not args.force:
+        skip_step("train LSPI", ckpt)
+    else:
+        run_step(
+            "train LSPI",
+            [
+                py,
+                "-m",
+                "scripts.train_lspi",
+                "--samples",
+                str(train_src),
+                "--shards-dir",
+                str(shard_dir),
+                "--out",
+                str(ckpt),
+                "--features",
+                feature_name,
+                "--workers",
+                str(WORKERS),
+                "--preload",
+                "--iters",
+                str(ITERS),
+                "--reg",
+                REG,
+                "--gamma",
+                GAMMA,
+                "--ckpt-every-iter",
+            ],
+            env=env,
+        )
+
+    if not args.skip_eval:
         # 6. Inspect checkpoint
-        run_logged(
-            desc="inspect checkpoint",
-            cmd=[
+        run_step(
+            "inspect checkpoint",
+            [
                 py,
                 "-m",
                 "scripts.inspect_checkpoint",
                 str(ckpt),
             ],
-            log_f=log_f,
-            log_path=log_path,
             env=env,
         )
 
         # 7. Position suite
-        run_logged(
-            desc="position suite",
-            cmd=[
+        run_step(
+            "position suite",
+            [
                 py,
                 "-m",
                 "scripts.eval_position_suite",
@@ -452,15 +405,13 @@ def main() -> None:
                 "--show-top",
                 "10",
             ],
-            log_f=log_f,
-            log_path=log_path,
             env=env,
         )
 
         # 8. Random eval
-        run_logged(
-            desc="self-play eval vs random",
-            cmd=[
+        run_step(
+            "self-play eval vs random",
+            [
                 py,
                 "-m",
                 "scripts.eval_selfplay",
@@ -480,15 +431,13 @@ def main() -> None:
                 "--seed",
                 "3",
             ],
-            log_f=log_f,
-            log_path=log_path,
             env=env,
         )
 
         # 9. Material eval
-        run_logged(
-            desc="self-play eval vs material",
-            cmd=[
+        run_step(
+            "self-play eval vs material",
+            [
                 py,
                 "-m",
                 "scripts.eval_selfplay",
@@ -508,18 +457,14 @@ def main() -> None:
                 "--seed",
                 "2",
             ],
-            log_f=log_f,
-            log_path=log_path,
             env=env,
         )
 
     print()
-    print("[done]")
+    print("=" * 100)
+    print("DONE")
+    print("=" * 100)
     print(f"Checkpoint: {ckpt}")
-    print(f"Log:        {log_path}")
-    print()
-    print("To paste the full output:")
-    print(f"  cat {shlex.quote(str(log_path))}")
 
 
 if __name__ == "__main__":
