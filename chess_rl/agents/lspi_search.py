@@ -10,6 +10,7 @@ import numpy as np
 
 from chess_core.board import Board
 from chess_core.move import Move
+from chess_core.piece import Piece as p
 from chess_rl.agents.base import Agent, AgentInfo
 from chess_rl.features.registry import get as get_features
 from chess_rl.features.base import FeatureExtractor
@@ -205,21 +206,35 @@ class LSPISearchAgent(Agent):
         feats: FeatureExtractor,
     ) -> list[Move]:
         """
-        Cheap move ordering using the evaluator after each candidate move.
+        Cheap move ordering.
 
-        White wants high scores first.
-        Black wants low scores first.
+        Avoid calling phi_afterstate() here. v3 features are expensive, and
+        evaluating every move just for ordering duplicates work.
+
+        Order:
+        captures/promotions first,
+        quiet moves later.
+
+        This is not perfect, but it is much faster.
         """
-        white_to_move = board.get_is_white_to_move()
+        arr = board.get_board()
 
         scored: list[tuple[float, Move]] = []
 
         for move in moves:
-            with board.temporary_move(move):
-                score = self._evaluate(board, feats)
-            scored.append((score, move))
+            captured = arr[move.dst_square]
+            capture_score = self._piece_value(captured)
 
-        scored.sort(key=lambda x: x[0], reverse=white_to_move)
+            promo_score = 0.0
+            if move.promotion:
+                promo_score = self._promotion_value(move.promotion)
+
+            # MVV-like ordering. We mostly care that forcing/material moves are first.
+            order_score = capture_score + promo_score
+
+            scored.append((order_score, move))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
         return [m for _score, m in scored]
 
     def _adjust_score_for_draw_risk_after_move(
@@ -363,3 +378,36 @@ class LSPISearchAgent(Agent):
             use_draw_safety=use_draw_safety,
             use_tactical_safety=use_tactical_safety,
         )
+
+    def _piece_value(self, piece: int) -> float:
+        if piece == p.NONE:
+            return 0.0
+
+        t = p.piece_type(piece)
+
+        if t == p.PAWN:
+            return 1.0
+        if t == p.KNIGHT:
+            return 3.2
+        if t == p.BISHOP:
+            return 3.3
+        if t == p.ROOK:
+            return 5.0
+        if t == p.QUEEN:
+            return 9.0
+        if t == p.KING:
+            return 100.0
+
+        return 0.0
+
+
+    def _promotion_value(self, promotion: int) -> float:
+        if promotion == p.QUEEN:
+            return 9.0
+        if promotion == p.ROOK:
+            return 5.0
+        if promotion == p.BISHOP:
+            return 3.3
+        if promotion == p.KNIGHT:
+            return 3.2
+        return 0.0

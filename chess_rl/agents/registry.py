@@ -66,7 +66,7 @@ def make_player(player_id: str) -> Agent | None:
             depth=2,
             max_branch=None,
             use_draw_safety=True,
-            use_tactical_safety=True,
+            use_tactical_safety=False,
         ) 
 
     raise ValueError(f"Unknown player: {player_id!r}")
