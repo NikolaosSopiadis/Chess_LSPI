@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from statistics import mean
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Literal
 
 from chess_core.board import Board
 from chess_core.move import Move
+from chess_rl.rewards.v1_terminal_plus_potential import material_potential
 from chess_rl.agents.base import Agent
 from chess_rl.agents.random import RandomAgent
 from chess_rl.agents.material_greedy import MaterialGreedyAgent
@@ -194,6 +196,140 @@ def play_game(
         final_fen=board.to_fen(),
     )
 
+def material_cp_from_fen(fen: str) -> float:
+    """
+    Return white material advantage in centipawn-like units.
+
+    material_potential() uses:
+      pawn = 0.1
+      knight = 0.32
+      bishop = 0.33
+      rook = 0.5
+      queen = 0.9
+
+    Multiplying by 1000 gives:
+      pawn = 100
+      knight = 320
+      bishop = 330
+      rook = 500
+      queen = 900
+    """
+    b = Board()
+    b.init_board(fen)
+    return float(material_potential(b) * 1000.0)
+
+
+def material_cp_for_agent(result, agent_name: str) -> float | None:
+    """
+    Final material from the given agent's perspective.
+
+    Positive means the agent is ahead.
+    Negative means the agent is behind.
+    """
+    white_label = result.white_label
+    black_label = result.black_label
+
+    white_cp = material_cp_from_fen(result.final_fen)
+
+    if agent_name == white_label:
+        return white_cp
+
+    if agent_name == black_label:
+        return -white_cp
+
+    return None
+
+
+def bucket_material(cp: float, *, equal_threshold_cp: float = 50.0) -> str:
+    """
+    Treat positions within half a pawn as roughly equal.
+
+    Since pawn = 100 cp, threshold 50 cp means:
+      > +50: ahead
+      < -50: behind
+      otherwise: equal
+    """
+    if cp > equal_threshold_cp:
+        return "ahead"
+    if cp < -equal_threshold_cp:
+        return "behind"
+    return "equal"
+
+
+def print_draw_material_summary(results) -> None:
+    """
+    Summarize final material in drawn games from each agent's perspective.
+    """
+    agents = sorted({r.white_label for r in results} | {r.black_label for r in results})
+    drawn = [r for r in results if r.winner == "draw"]
+
+    if not drawn:
+        print()
+        print("Draw material summary: no drawn games.")
+        return
+
+    stats = {
+        agent: {
+            "draws": 0,
+            "ahead": 0,
+            "equal": 0,
+            "behind": 0,
+            "cp_values": [],
+            "by_reason": defaultdict(list),
+        }
+        for agent in agents
+    }
+
+    for r in drawn:
+        for agent in agents:
+            cp = material_cp_for_agent(r, agent)
+            if cp is None:
+                continue
+
+            bucket = bucket_material(cp)
+
+            s = stats[agent]
+            s["draws"] += 1
+            s[bucket] += 1
+            s["cp_values"].append(cp)
+            s["by_reason"][r.reason].append(cp)
+
+    print()
+    print("Draw material summary:")
+    print("  Positive cp means the agent was materially ahead at the draw.")
+    print("  Equal bucket uses ±50 cp.")
+
+    for agent in agents:
+        s = stats[agent]
+        cps = s["cp_values"]
+
+        if not cps:
+            continue
+
+        avg_cp = mean(cps)
+        min_cp = min(cps)
+        max_cp = max(cps)
+
+        print()
+        print(f"  {agent}:")
+        print(f"    drawn games: {s['draws']}")
+        print(f"    ahead/equal/behind: {s['ahead']}/{s['equal']}/{s['behind']}")
+        print(f"    avg final material: {avg_cp:+.1f} cp")
+        print(f"    range: {min_cp:+.1f} cp to {max_cp:+.1f} cp")
+
+        print("    by draw reason:")
+        for reason, vals in sorted(s["by_reason"].items(), key=lambda kv: (-len(kv[1]), kv[0])):
+            vals_avg = mean(vals)
+            ahead = sum(1 for x in vals if bucket_material(x) == "ahead")
+            equal = sum(1 for x in vals if bucket_material(x) == "equal")
+            behind = sum(1 for x in vals if bucket_material(x) == "behind")
+
+            print(
+                f"      {reason}: "
+                f"n={len(vals)}, "
+                f"avg={vals_avg:+.1f} cp, "
+                f"ahead/equal/behind={ahead}/{equal}/{behind}"
+            )
 
 def print_summary(results: list[GameResult]) -> None:
     n = len(results)
@@ -246,7 +382,7 @@ def print_summary(results: list[GameResult]) -> None:
             f"score={score.score:.1%} "
             f"games={score.games}"
         )
-
+    print_draw_material_summary(results)
 
 def save_json(path: str, results: list[GameResult]) -> None:
     p = Path(path)
