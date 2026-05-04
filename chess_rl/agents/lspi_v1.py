@@ -31,18 +31,30 @@ class LSPIV1Agent(Agent):
 
         white_to_move = board.get_is_white_to_move()
 
+        base_material = float(material_potential(board))
+        before_mover_advantage = base_material if white_to_move else -base_material
+
         best_move: Move | None = None
         best_score: float = 0.0
 
         for move in moves:
-            # Do the move once, compute phi and draw-risk adjustment in the same afterstate.
+            # Do the move once, compute phi and all policy-time score adjustments
+            # in the same afterstate.
             with board.temporary_move(move):
                 phi = feats.phi_afterstate(board)
                 score = float(self.w @ phi)
+
                 score = self._adjust_score_for_draw_risk_after_move(
                     board,
                     score,
                     mover_was_white=white_to_move,
+                )
+
+                score = self._adjust_score_for_tactical_safety_after_move(
+                    board,
+                    score,
+                    mover_was_white=white_to_move,
+                    before_mover_advantage=before_mover_advantage,
                 )
 
             if best_move is None:
@@ -96,7 +108,7 @@ class LSPIV1Agent(Agent):
         DRAW_PENALTY = 0.75
         REPEAT_PENALTY = 0.35
         FIFTY_MOVE_PENALTY = 0.35
-        AHEAD_THRESHOLD = 0.50
+        AHEAD_THRESHOLD = 0.30
 
         done, reason = board.game_end_state()
         material = float(material_potential(board))
@@ -137,5 +149,65 @@ class LSPIV1Agent(Agent):
                 score -= penalty
             else:
                 score += penalty
+
+        return score
+
+    def _adjust_score_for_tactical_safety_after_move(
+        self,
+        board: Board,
+        score: float,
+        *,
+        mover_was_white: bool,
+        before_mover_advantage: float,
+    ) -> float:
+        """
+        Penalize moves that allow the opponent to immediately leave us materially worse
+        than we were before making the candidate move.
+
+        This avoids obvious one-move queen/rook/bishop hangs while not heavily
+        penalizing equal trades. Example:
+
+        Before move: material = equal
+        Candidate: Qxd8+
+        Opponent: Kxd8
+
+        Final material is still equal, so this should not be treated as a queen blunder.
+        """
+        LOSS_THRESHOLD = 0.10   # one pawn
+        PENALTY_SCALE = 1.25
+        PENALTY_CAP = 2.50
+
+        done, _reason = board.game_end_state()
+        if done:
+            return score
+
+        replies = board.get_all_legal_moves()
+        if not replies:
+            return score
+
+        worst_after_reply_advantage = before_mover_advantage
+
+        for reply in replies:
+            with board.temporary_move(reply):
+                material = float(material_potential(board))
+                adv = material if mover_was_white else -material
+
+            if adv < worst_after_reply_advantage:
+                worst_after_reply_advantage = adv
+
+        material_loss = before_mover_advantage - worst_after_reply_advantage
+
+        if material_loss <= LOSS_THRESHOLD:
+            return score
+
+        penalty = PENALTY_SCALE * (material_loss - LOSS_THRESHOLD)
+        penalty = min(PENALTY_CAP, penalty)
+
+        # White maximizes score. Bad white moves should be scored lower.
+        # Black minimizes score. Bad black moves should be scored higher.
+        if mover_was_white:
+            score -= penalty
+        else:
+            score += penalty
 
         return score

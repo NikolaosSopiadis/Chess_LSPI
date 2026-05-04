@@ -12,7 +12,7 @@ HUMAN = "Human"
 RANDOM = "Random legal"
 GREEDY = "Material greedy"
 LSPI_V1 = "LSPI v1"
-LSPI_V3_1M = "LSPI v3 1M"    
+LSPI_V3_TACTICAL_1M = "LSPI v3 Tactical 1M"    
 
 # Adjust this path whenever you want to test a different checkpoint.
 LSPI_V1_CHECKPOINT = Path("data/processed/checkpoints/lspi_v1_basic_pgn_200k_reg1e-1.npz")
@@ -25,7 +25,7 @@ def player_options() -> list[str]:
         RANDOM,
         GREEDY,
         LSPI_V1,
-        LSPI_V3_1M,
+        LSPI_V3_TACTICAL_1M,
     ]
 
 
