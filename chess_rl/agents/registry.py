@@ -6,6 +6,7 @@ from chess_rl.agents.base import Agent
 from chess_rl.agents.random import RandomAgent
 from chess_rl.agents.lspi_v1 import LSPIV1Agent
 from chess_rl.agents.material_greedy import MaterialGreedyAgent
+from chess_rl.agents.lspi_search import LSPISearchAgent
 
 
 HUMAN = "Human"
@@ -13,6 +14,7 @@ RANDOM = "Random legal"
 GREEDY = "Material greedy"
 LSPI_V1 = "LSPI v1"
 LSPI_V3_TACTICAL_1M = "LSPI v3 Tactical 1M"    
+LSPI_V3_SEARCH_1M = "LSPI v3 Search 1M"
 
 # Adjust this path whenever you want to test a different checkpoint.
 LSPI_V1_CHECKPOINT = Path("data/processed/checkpoints/lspi_v1_basic_pgn_200k_reg1e-1.npz")
@@ -26,6 +28,7 @@ def player_options() -> list[str]:
         GREEDY,
         LSPI_V1,
         LSPI_V3_TACTICAL_1M,
+        LSPI_V3_SEARCH_1M,
     ]
 
 
@@ -49,9 +52,21 @@ def make_player(player_id: str) -> Agent | None:
             raise FileNotFoundError(f"Missing LSPI v1 checkpoint: {LSPI_V1_CHECKPOINT}")
         return LSPIV1Agent.load(str(LSPI_V1_CHECKPOINT))
 
-    if player_id == LSPI_V3_1M:
+    if player_id == LSPI_V3_TACTICAL_1M:
         if not LSPI_V3_1M_CHECKPOINT.exists():
             raise FileNotFoundError(f"Missing LSPI v3 1M checkpoint: {LSPI_V3_1M_CHECKPOINT}")
         return LSPIV1Agent.load(str(LSPI_V3_1M_CHECKPOINT))
+    
+    if player_id == LSPI_V3_SEARCH_1M:
+        if not LSPI_V3_1M_CHECKPOINT.exists():
+            raise FileNotFoundError(f"Missing LSPI v3 checkpoint: {LSPI_V3_1M_CHECKPOINT}")
+
+        return LSPISearchAgent.load(
+            str(LSPI_V3_1M_CHECKPOINT),
+            depth=2,
+            max_branch=None,
+            use_draw_safety=True,
+            use_tactical_safety=True,
+        ) 
 
     raise ValueError(f"Unknown player: {player_id!r}")
