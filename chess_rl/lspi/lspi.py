@@ -44,6 +44,7 @@ _ALLOWED_REWARD_VERSIONS = {
     "synthetic_material_delta_v1",
     "pgn_terminal_plus_potential_v1",
     "selfplay_terminal_plus_potential_v1",
+    "material_value_anchor_v1",
 }
 
 
