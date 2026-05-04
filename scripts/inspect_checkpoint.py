@@ -1,6 +1,6 @@
 import numpy as np
 
-ckpt = np.load("data/processed/checkpoints/lspi_v1.9_profiling.npz", allow_pickle=True)
+ckpt = np.load("data/processed/checkpoints/lspi_v2_basic_pgn_200k_reg1e-1.iter09.npz", allow_pickle=True)
 print(ckpt.files)
 
 w = ckpt["w"]

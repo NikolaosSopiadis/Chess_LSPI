@@ -10,11 +10,11 @@ import os
 from typing import Iterator, Optional, cast, Any
 from collections.abc import Callable
 from collections import OrderedDict
+import time
+import traceback
 
 import numpy as np
 import numpy.typing as npt
-
-from chess_rl.features.v1_basic import V1BasicFeatures
 
 Float64Array = npt.NDArray[np.float64]
 Float32Array = npt.NDArray[np.float32]
@@ -439,8 +439,36 @@ def _load_shards_mem(
     done_arr = np.asarray(dones, dtype=np.bool_)
     return SamplesMem(phi=phi_mat, r=r_arr, done=done_arr, fen_next=fens)
 
-
 def _worker_loop_pinned(
+    worker_id: int,
+    shard_paths: list[str],
+    feature_name: str,
+    cfg: LSPIConfig,
+    in_q: "mp.Queue[Any]",
+    out_q: "mp.Queue[Any]",
+    *,
+    preload: bool,
+    action_cache: bool,
+    cache_max: int,
+) -> None:
+    try:
+        _worker_loop_pinned_impl(
+            worker_id,
+            shard_paths,
+            feature_name,
+            cfg,
+            in_q,
+            out_q,
+            preload=preload,
+            action_cache=action_cache,
+            cache_max=cache_max,
+        )
+    except BaseException as e:
+        out_q.put(("error", worker_id, repr(e), traceback.format_exc()))
+        return
+
+def _worker_loop_pinned_impl(
+    worker_id: int,
     shard_paths: list[str],
     feature_name: str,
     cfg: LSPIConfig,
@@ -470,10 +498,16 @@ def _worker_loop_pinned(
     # fen -> _ActionPhiCacheEntry, LRU via OrderedDict
     lru: "OrderedDict[str, _ActionPhiCacheEntry]" = OrderedDict()
 
+    local_cache_hits = 0
+    local_cache_misses = 0
+
     def best_phi_next_cached_local(fen: str, w32: Float32Array) -> Float32Array:
+        nonlocal local_cache_hits, local_cache_misses
+
         k = fen_key(fen)
         entry = lru.get(k)
         if entry is None:
+            local_cache_misses += 1
             b_tmp.init_board(fen)
             stm_white = b_tmp._is_white_to_move
 
@@ -505,7 +539,7 @@ def _worker_loop_pinned(
                             bigger[:cnt] = phis32[:cnt]
                             phis32 = bigger
 
-                        phi = cast("V1BasicFeatures", feats).phi_afterstate(b_tmp)
+                        phi = feats.phi_afterstate(b_tmp)
                         phis32[cnt] = phi
                         cnt += 1
                     finally:
@@ -518,6 +552,7 @@ def _worker_loop_pinned(
             if cache_max > 0 and len(lru) > cache_max:
                 lru.popitem(last=False)
         else:
+            local_cache_hits += 1
             lru.move_to_end(k)  # <-- restore LRU behavior
 
         scores = entry.phis @ w32
@@ -533,6 +568,37 @@ def _worker_loop_pinned(
             return
 
         iter_idx, w = msg
+
+        local_cache_hits = 0
+        local_cache_misses = 0
+        iter_t0 = time.time()
+        last_progress_t = 0.0
+
+        def maybe_report_progress(done_rows: int, total_rows: int | None, *, force: bool = False) -> None:
+            nonlocal last_progress_t
+
+            if worker_id != 0:
+                return
+
+            now = time.time()
+            if not force and (now - last_progress_t) < 0.5:
+                return
+
+            last_progress_t = now
+
+            out_q.put(
+                (
+                    "progress",
+                    iter_idx,
+                    worker_id,
+                    done_rows,
+                    total_rows,
+                    local_cache_hits,
+                    local_cache_misses,
+                    now - iter_t0,
+                )
+            )
+
         np.copyto(w32, w, casting="unsafe") # cast float64 -> float32 with no mem alloc
         d = feats.spec.dim
         A = np.zeros((d, d), dtype=np.float64)
@@ -554,19 +620,23 @@ def _worker_loop_pinned(
 
                 if action_cache:
                     for j in range(B):
-                        if done_vec[j]:
-                            continue
+                        if not done_vec[j]:
+                            fen = samples_mem.fen_next[start + j]
+                            # write float32 -> float64 row (no allocation)
+                            Phi_next[j] = best_phi_next_cached_local(fen, w32)
 
-                        fen = samples_mem.fen_next[start + j]
-                        # write float32 -> float64 row (no allocation)
-                        Phi_next[j] = best_phi_next_cached_local(fen, w32)
+                        # Report during the expensive part, not only after the chunk.
+                        if worker_id == 0 and ((j + 1) % 256 == 0):
+                            maybe_report_progress(start + j + 1, N)
                 else:
                     for j in range(B):
-                        if done_vec[j]:
-                            continue
-                        fen = samples_mem.fen_next[start + j]
-                        b_tmp.init_board(fen)
-                        Phi_next[j] = greedy_choice(b_tmp, w, feats).phi
+                        if not done_vec[j]:
+                            fen = samples_mem.fen_next[start + j]
+                            b_tmp.init_board(fen)
+                            Phi_next[j] = greedy_choice(b_tmp, w, feats).phi
+
+                        if worker_id == 0 and ((j + 1) % 256 == 0):
+                            maybe_report_progress(start + j + 1, N)
 
                 # BLAS update
                 # diff_tmp[:B] = Phi - gamma*Phi_next
@@ -576,12 +646,17 @@ def _worker_loop_pinned(
                 A += Phi.T @ diff_tmp[:B]
                 b += Phi.T @ r_vec
 
+                maybe_report_progress(end, N)
+                
+            maybe_report_progress(N, N, force=True)
+
         else:
             # streaming path: gz/json each iter (chunked)
             Phi_buf = np.empty((CHUNK, d), dtype=np.float64)
             Phi_next_buf = np.empty((CHUNK, d), dtype=np.float64)
             r_buf = np.empty((CHUNK,), dtype=np.float64)
             filled = 0
+            rows_done = 0
 
             def flush(B: int) -> None:
                 # diff_tmp[:B] = Phi_buf[:B] - gamma*Phi_next_buf[:B]
@@ -610,14 +685,17 @@ def _worker_loop_pinned(
                             b_tmp.init_board(fen)
                             Phi_next_buf[filled] = greedy_choice(b_tmp, w, feats).phi
 
+                    rows_done += 1
                     filled += 1
+
                     if filled == CHUNK:
                         flush(CHUNK)
                         filled = 0
+                        maybe_report_progress(rows_done, None)
 
             if filled:
                 flush(filled)
-
+                maybe_report_progress(rows_done, None, force=True)
 
         out_q.put((iter_idx, A, b))
 
@@ -687,7 +765,7 @@ class PinnedShardPool:
         for i in range(workers):
             p = self.ctx.Process(
                 target=_worker_loop_pinned,
-                args=(self.buckets[i], feature_name, cfg, self.in_queues[i], self.out_q),
+                args=(i, self.buckets[i], feature_name, cfg, self.in_queues[i], self.out_q),
                 kwargs=dict(
                     preload=preload,
                     action_cache=action_cache,
@@ -706,9 +784,14 @@ class PinnedShardPool:
             if p.is_alive():
                 p.kill()
 
-    def accumulate(self, w: Float64Array,iter_idx: int, *, 
-                   desc: str, verbose: bool) -> tuple[Float64Array, Float64Array]:
-        # send work
+    def accumulate(
+        self,
+        w: Float64Array,
+        iter_idx: int,
+        *,
+        desc: str,
+        verbose: bool,
+    ) -> tuple[Float64Array, Float64Array]:
         for q in self.in_queues:
             q.put((iter_idx, w))
 
@@ -716,21 +799,94 @@ class PinnedShardPool:
         A_total = np.zeros((d, d), dtype=np.float64)
         b_total = np.zeros((d,), dtype=np.float64)
 
-        pbar = tqdm(total=self.workers, desc=desc, unit="workers", mininterval=0.25) if (verbose and tqdm is not None) else None
+        pbar_workers = tqdm(
+            total=self.workers,
+            desc=desc,
+            unit="workers",
+            mininterval=0.25,
+        ) if (verbose and tqdm is not None) else None
+
+        pbar_worker0 = None
+        worker0_last_rows = 0
 
         got = 0
+
         while got < self.workers:
-            i_idx, A_part, b_part = self.out_q.get()
+            msg = self.out_q.get()
+            
+            # Worker exception message.
+            if isinstance(msg, tuple) and len(msg) >= 1 and msg[0] == "error":
+                _, worker_id, err_repr, tb = msg
+                if pbar_worker0 is not None:
+                    pbar_worker0.close()
+                if pbar_workers is not None:
+                    pbar_workers.close()
+                raise RuntimeError(
+                    f"LSPI worker {worker_id} crashed:\n{err_repr}\n\n{tb}"
+                )
+
+            # Progress message from worker 0.
+            if isinstance(msg, tuple) and len(msg) >= 1 and msg[0] == "progress":
+                (
+                    _tag,
+                    msg_iter_idx,
+                    worker_id,
+                    done_rows,
+                    total_rows,
+                    cache_hits,
+                    cache_misses,
+                    elapsed,
+                ) = msg
+
+                if msg_iter_idx != iter_idx:
+                    continue
+
+                if verbose and tqdm is not None and worker_id == 0:
+                    if pbar_worker0 is None:
+                        pbar_worker0 = tqdm(
+                            total=total_rows,
+                            desc=f"{desc} worker0",
+                            unit="rows",
+                            leave=False,
+                            mininterval=0.5,
+                        )
+
+                    delta_rows = max(0, int(done_rows) - worker0_last_rows)
+                    worker0_last_rows = int(done_rows)
+
+                    if delta_rows:
+                        pbar_worker0.update(delta_rows)
+
+                    denom = max(1, int(cache_hits) + int(cache_misses))
+                    hit_rate = int(cache_hits) / denom
+                    rows_per_sec = int(done_rows) / max(1e-9, float(elapsed))
+
+                    pbar_worker0.set_postfix(
+                        rps=f"{rows_per_sec:.0f}",
+                        cache=f"{100.0 * hit_rate:.1f}%",
+                        rows=int(done_rows),
+                    )
+
+                continue
+
+            # Normal completion message.
+            i_idx, A_part, b_part = msg
+
             if i_idx != iter_idx:
                 continue
+
             A_total += A_part
             b_total += b_part
             got += 1
-            if pbar is not None:
-                pbar.update(1)
 
-        if pbar is not None:
-            pbar.close()
+            if pbar_workers is not None:
+                pbar_workers.update(1)
+
+        if pbar_worker0 is not None:
+            pbar_worker0.close()
+
+        if pbar_workers is not None:
+            pbar_workers.close()
 
         return A_total, b_total
 
@@ -797,7 +953,7 @@ class ActionPhiCache:
                             bigger[:cnt] = phis32[:cnt]
                             phis32 = bigger
 
-                        phi = cast("V1BasicFeatures", self.feats).phi_afterstate(b)
+                        phi = self.feats.phi_afterstate(b)
                         phis32[cnt] = phi
                         cnt += 1
                     finally:

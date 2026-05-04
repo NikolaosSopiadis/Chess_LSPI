@@ -326,7 +326,20 @@ def main() -> None:
         encoding="utf-8",
         compresslevel=args.compresslevel,
     ) as out_f:
-        pbar = tqdm(unit="game", desc="PGN games", mininterval=0.5)
+
+        if args.max_samples is not None:
+            pbar = tqdm(
+                total=args.max_samples,
+                unit="samples",
+                desc="PGN samples",
+                mininterval=0.5,
+            )
+        else:
+            pbar = tqdm(
+                unit="game",
+                desc="PGN games",
+                mininterval=0.5,
+            )
 
         while True:
             if args.max_games is not None and games_seen >= args.max_games:
@@ -339,7 +352,6 @@ def main() -> None:
                 break
 
             games_seen += 1
-            pbar.update(1)
 
             recs = process_game(
                 game,
