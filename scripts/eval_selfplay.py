@@ -17,7 +17,10 @@ from chess_rl.agents.base import Agent
 from chess_rl.agents.random import RandomAgent
 from chess_rl.agents.material_greedy import MaterialGreedyAgent
 from chess_rl.agents.lspi_v1 import LSPIV1Agent
-
+try:
+    from tqdm.auto import tqdm
+except Exception:
+    tqdm = None
 
 Winner = Literal["white", "black", "draw"]
 
@@ -435,6 +438,12 @@ def main() -> None:
     ap.add_argument("--json-out", default=None)
     ap.add_argument("--progress-every", type=int, default=10)
 
+    ap.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable tqdm progress bar.",
+    )
+
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
@@ -472,16 +481,28 @@ def main() -> None:
         seed=args.seed + 202,
     )
 
-    for i in range(args.games):
-        if args.random_openings > 0:
-            start_fen = make_random_opening_fen(
-                start_fen=args.start_fen,
-                random_plies=args.random_openings,
-                rng=rng,
-            )
-        else:
-            start_fen = args.start_fen
+    use_tqdm = (not args.no_progress) and tqdm is not None
 
+    if use_tqdm:
+        position_iter = tqdm(
+            range(args.games),
+            total=args.games,
+            desc="eval start positions",
+            unit="pos",
+            dynamic_ncols=True,
+            mininterval=0.5,
+        )
+    else:
+        position_iter = range(args.games)
+
+    for i in position_iter:
+        start_fen = make_random_opening_fen(
+            start_fen=args.start_fen,
+            random_plies=args.random_openings,
+            rng=rng,
+        )
+
+        # Normal color assignment.
         result = play_game(
             game_idx=game_idx,
             start_fen=start_fen,
@@ -494,8 +515,9 @@ def main() -> None:
         results.append(result)
         game_idx += 1
 
+        # Optional swapped-color game from the same start position.
         if args.swap_colors:
-            swapped_result = play_game(
+            result = play_game(
                 game_idx=game_idx,
                 start_fen=start_fen,
                 white_agent=base_black_agent,
@@ -504,11 +526,31 @@ def main() -> None:
                 black_label=white_label,
                 max_plies=args.max_plies,
             )
-            results.append(swapped_result)
+            results.append(result)
             game_idx += 1
 
-        if args.progress_every > 0 and (i + 1) % args.progress_every == 0:
-            print(f"Completed {i + 1}/{args.games} start positions...")
+        if use_tqdm:
+            reason_counts = Counter(r.reason for r in results)
+
+            played = len(results)
+            draws = sum(1 for r in results if r.winner == "draw")
+            checkmates = reason_counts.get("checkmate", 0)
+            repetitions = reason_counts.get("threefold repetition", 0)
+            stalemates = reason_counts.get("stalemate", 0)
+            fifty = reason_counts.get("fifty-move rule", 0)
+            max_plies_count = reason_counts.get("max plies", 0)
+
+            position_iter.set_postfix(
+                mate=checkmates,
+                draw=draws,
+                rep=repetitions,
+                stale=stalemates,
+                fifty=fifty,
+                max=max_plies_count,
+            )
+        else:
+            if args.progress_every and (i + 1) % args.progress_every == 0:
+                print(f"Completed {i + 1}/{args.games} start positions...")
 
     dt = time.time() - t0
 
