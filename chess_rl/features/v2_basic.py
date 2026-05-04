@@ -196,25 +196,28 @@ def _pseudo_mobility(board: Board, white: bool) -> int:
     This is deliberately cheaper than legal mobility. It is only an
     activity proxy, not a legality proof.
     """
-    old_side = board._is_white_to_move
+    old_turn = board._is_white_to_move
+    old_ep = board._en_passant_target
 
-    total = 0
     try:
         board._is_white_to_move = white
 
-        bseq = board.get_board()
-        for sq, pc in enumerate(bseq):
-            pc = int(pc)
+        if white != old_turn:
+            board._en_passant_target = None
+
+        total = 0
+        for src, pc in enumerate(board.get_board()):
             if pc == p.NONE:
                 continue
             if p.is_white(pc) != white:
                 continue
-            total += len(board.get_pseudolegal_moves(sq))
+            total += len(board.get_pseudolegal_moves(src))
+
+        return total
 
     finally:
-        board._is_white_to_move = old_side
-
-    return total
+        board._is_white_to_move = old_turn
+        board._en_passant_target = old_ep
 
 
 def _attacked_material_features(board: Board) -> dict[str, float]:

@@ -865,7 +865,6 @@ class PinnedShardPool:
                     pbar_worker0.set_postfix(
                         rps=f"{rows_per_sec:.0f}",
                         cache=f"{100.0 * hit_rate:.1f}%",
-                        rows=int(done_rows),
                     )
 
                 continue

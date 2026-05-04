@@ -1,6 +1,9 @@
-from typing import Final, Sequence
+from __future__ import annotations
+
+from typing import Final, Sequence, Iterator
 from dataclasses import dataclass
 import random
+from contextlib import contextmanager
 
 from chess_core.piece import Piece as p
 from chess_core.move import F_CAPTURE, F_CASTLE, F_DOUBLE_PAWN, F_EN_PASSANT, F_PROMOTION, PROMO_BISHOP, PROMO_KNIGHT, PROMO_NONE, PROMO_QUEEN, PROMO_ROOK, Move
@@ -653,6 +656,13 @@ class Board:
             else:
                 cap_sq = dst + self._files
             cap_piece = int(self._board[cap_sq])
+
+            if cap_piece == p.NONE:
+                raise AssertionError(
+                    f"Invalid en-passant move: no pawn on capture square "
+                    f"move={move}, cap_sq={cap_sq}, fen={self.to_fen()}"
+                )
+            
             self._mat_dec(cap_piece)
             self._z_xor_piece(cap_piece, cap_sq)
             undo.captured_square = cap_sq
@@ -1196,6 +1206,96 @@ class Board:
                 m[i] += 1
         assert m == self._mat, (self._mat, m)
 
+    def current_repetition_count(self) -> int:
+        """
+        Return how many times the current position key has occurred in the current game history.
+
+        This uses the engine's internal repetition key. It should include the same
+        information that your threefold-repetition logic already uses.
+        """
+        return int(self._rep_counts.get(self._zkey, 0))
+
+
+    def repetition_count_after(self, move: Move) -> int:
+        """
+        Return the repetition count that would hold after making `move`,
+        without permanently modifying the board.
+        """
+        undo = self._do_move(move)
+        try:
+            return self.current_repetition_count()
+        finally:
+            self._undo_move(undo)
+
+
+    def is_repetition_risk_after(self, move: Move, *, threshold: int = 2) -> bool:
+        """
+        True if making this move reaches a position that has occurred at least
+        `threshold` times.
+
+        threshold=2 means "this is already a repeated position / approaching danger".
+        threshold=3 means "this reaches threefold repetition" under your engine logic.
+        """
+        return self.repetition_count_after(move) >= threshold
+
+
+    def is_threefold_repetition_after(self, move: Move) -> bool:
+        """
+        True if making this move would reach a position with repetition count >= 3.
+        """
+        return self.repetition_count_after(move) >= 3
+
+    @contextmanager
+    def temporary_move(self, move: Move) -> Iterator[None]:
+        """
+        Temporarily make a move and automatically undo it.
+
+        Usage:
+            with board.temporary_move(move):
+                ...
+        """
+        undo = self._do_move(move)
+        try:
+            yield
+        finally:
+            self._undo_move(undo)
+
+    def get_all_legal_moves_for_side(self, white: bool) -> list[Move]:
+        """
+        Return all legal moves for the requested side without permanently changing turn.
+
+        Important:
+        En-passant is only legal for the actual side to move. If we are querying
+        the non-side-to-move for static mobility/evaluation purposes, we must
+        disable the EP target; otherwise bogus en-passant moves can be generated.
+        """
+        old_turn = self._is_white_to_move
+        old_ep = self._en_passant_target
+        old_zkey = self._zkey
+
+        try:
+            self._is_white_to_move = white
+
+            if white != old_turn:
+                self._en_passant_target = None
+
+            # Keep Zobrist internally consistent while get_legal_moves()
+            # temporarily makes/undoes moves.
+            self._zkey = self._recompute_zobrist()
+
+            return self.get_all_legal_moves()
+
+        finally:
+            self._is_white_to_move = old_turn
+            self._en_passant_target = old_ep
+            self._zkey = old_zkey
+
+
+    def legal_mobility(self, white: bool) -> int:
+        """
+        Number of legal moves available to the requested side.
+        """
+        return len(self.get_all_legal_moves_for_side(white))
 
 def _on_board(sq: int) -> bool:
     return 0 <= sq < 64
