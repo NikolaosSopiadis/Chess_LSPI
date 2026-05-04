@@ -247,7 +247,7 @@ def _accumulate_A_b_mem(
 
     # action-cache is the whole point here
     if action_cache is None:
-        action_cache = ActionPhiCache(feats, max_size=200_000)
+        action_cache = ActionPhiCache(feats, max_size=500_000)
 
     w32 = np.empty((d,), dtype=np.float32)
     np.copyto(w32, w, casting="unsafe")  # float64 -> float32 no alloc

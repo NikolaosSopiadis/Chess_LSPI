@@ -326,7 +326,6 @@ def main() -> None:
         encoding="utf-8",
         compresslevel=args.compresslevel,
     ) as out_f:
-
         if args.max_samples is not None:
             pbar = tqdm(
                 total=args.max_samples,
@@ -341,9 +340,28 @@ def main() -> None:
                 mininterval=0.5,
             )
 
+        last_postfix_t = 0.0
+
+        def update_postfix(*, force: bool = False) -> None:
+            nonlocal last_postfix_t
+
+            now = time.time()
+            if not force and (now - last_postfix_t) < 0.5:
+                return
+
+            last_postfix_t = now
+            dt_now = max(1e-9, now - t0)
+
+            pbar.set_postfix_str(
+                f"games={games_seen} "
+                f"used={games_used} "
+                f"skip={games_skipped}"
+            )
+
         while True:
             if args.max_games is not None and games_seen >= args.max_games:
                 break
+
             if args.max_samples is not None and samples_written >= args.max_samples:
                 break
 
@@ -365,6 +383,11 @@ def main() -> None:
 
             if not recs:
                 games_skipped += 1
+
+                if args.max_samples is None:
+                    pbar.update(1)
+
+                update_postfix()
                 continue
 
             games_used += 1
@@ -376,9 +399,15 @@ def main() -> None:
                 out_f.write(json.dumps(rec, separators=(",", ":")) + "\n")
                 samples_written += 1
 
-                if args.max_samples is not None and samples_written >= args.max_samples:
-                    break
+                if args.max_samples is not None:
+                    pbar.update(1)
 
+            if args.max_samples is None:
+                pbar.update(1)
+
+            update_postfix()
+
+        update_postfix(force=True)
         pbar.close()
 
     dt = max(1e-9, time.time() - t0)
