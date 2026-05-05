@@ -98,54 +98,102 @@ FEATURE_NAMES: dict[str, list[str]] = {
     ],
     
     "v3_basic": [
-    "bias",
-    "pawn_diff",
-    "knight_diff",
-    "bishop_diff",
-    "rook_diff",
-    "queen_diff",
-    "white_K_castle",
-    "white_Q_castle",
-    "black_K_castle",
-    "black_Q_castle",
-    "side_to_move_pm",
-    "white_in_check",
-    "black_in_check",
-    "mobility_diff",
-    "white_mobility",
-    "black_mobility",
-    "attacked_material_diff",
-    "white_attacks_black_material",
-    "black_attacks_white_material",
-    "hanging_material_diff",
-    "white_hanging_material",
-    "black_hanging_material",
-    "king_pressure_diff",
-    "white_king_danger",
-    "black_king_danger",
-    "pawn_advancement_diff",
-    "white_pawn_advancement",
-    "black_pawn_advancement",
-    "passed_pawn_diff",
-    "promotion_pressure_diff",
-    "halfmove_clock",
-    "white_legal_mobility",
-    "black_legal_mobility",
-    "legal_mobility_diff",
-    "side_to_move_legal_mobility",
-    "terminal_draw",
-    "terminal_checkmate_white_wins",
-    "terminal_checkmate_black_wins",
-    "white_ahead_draw_terminal",
-    "black_ahead_draw_terminal",
-    "repeat_count_norm",
-    "white_ahead_repeat_risk",
-    "black_ahead_repeat_risk",
-    "halfmove_pressure_white_ahead",
-    "halfmove_pressure_black_ahead",
-    "white_ahead_low_enemy_mobility",
-    "black_ahead_low_enemy_mobility",
-],
+        "bias",
+        "pawn_diff",
+        "knight_diff",
+        "bishop_diff",
+        "rook_diff",
+        "queen_diff",
+        "white_K_castle",
+        "white_Q_castle",
+        "black_K_castle",
+        "black_Q_castle",
+        "side_to_move_pm",
+        "white_in_check",
+        "black_in_check",
+        "mobility_diff",
+        "white_mobility",
+        "black_mobility",
+        "attacked_material_diff",
+        "white_attacks_black_material",
+        "black_attacks_white_material",
+        "hanging_material_diff",
+        "white_hanging_material",
+        "black_hanging_material",
+        "king_pressure_diff",
+        "white_king_danger",
+        "black_king_danger",
+        "pawn_advancement_diff",
+        "white_pawn_advancement",
+        "black_pawn_advancement",
+        "passed_pawn_diff",
+        "promotion_pressure_diff",
+        "halfmove_clock",
+        "white_legal_mobility",
+        "black_legal_mobility",
+        "legal_mobility_diff",
+        "side_to_move_legal_mobility",
+        "terminal_draw",
+        "terminal_checkmate_white_wins",
+        "terminal_checkmate_black_wins",
+        "white_ahead_draw_terminal",
+        "black_ahead_draw_terminal",
+        "repeat_count_norm",
+        "white_ahead_repeat_risk",
+        "black_ahead_repeat_risk",
+        "halfmove_pressure_white_ahead",
+        "halfmove_pressure_black_ahead",
+        "white_ahead_low_enemy_mobility",
+        "black_ahead_low_enemy_mobility",
+    ],
+    
+    "v4_slim": [
+        "bias",
+
+        "pawn_diff",
+        "knight_diff",
+        "bishop_diff",
+        "rook_diff",
+        "queen_diff",
+
+        "side_to_move_pm",
+        "white_in_check",
+        "black_in_check",
+
+        "mobility_diff",
+        "attacked_material_diff",
+        "hanging_material_diff",
+        "king_pressure_diff",
+        "pawn_advancement_diff",
+        "passed_pawn_diff",
+        "promotion_pressure_diff",
+
+        "terminal_checkmate_white_wins",
+        "terminal_checkmate_black_wins",
+
+        "white_ahead_draw_terminal",
+        "black_ahead_draw_terminal",
+        "white_ahead_repeat_risk",
+        "black_ahead_repeat_risk",
+        "halfmove_pressure_white_ahead",
+        "halfmove_pressure_black_ahead",
+
+        "castled_diff",
+        "king_walked_uncastled_diff",
+        "pawn_shield_diff",
+        "king_zone_safety_diff",
+        "open_file_safety_diff",
+        "development_diff",
+        "queen_development_diff",
+
+        "white_castled",
+        "black_castled",
+        "white_pawn_shield",
+        "black_pawn_shield",
+        "white_king_zone_attacked",
+        "black_king_zone_attacked",
+    ],
+
 }
 
 
@@ -193,6 +241,9 @@ def infer_feature_version(w: np.ndarray, meta: dict[str, Any]) -> str:
     if len(w) == 47:
         return "v3_basic"
 
+    if len(w) == 37:
+        return "v4_slim"
+
     return "unknown"
 
 
@@ -215,7 +266,7 @@ def print_effective_piece_values(feature_version: str, w: np.ndarray) -> None:
         rook = material_w * 0.500 + float(w[5]) / 2.0
         queen = material_w * 0.900 + float(w[6])
 
-    elif feature_version in ("v2_1_basic", "v3_basic"):
+    elif feature_version in ("v2_1_basic", "v3_basic", "v4_slim"):
         pawn = float(w[1]) / 8.0
         knight = float(w[2]) / 2.0
         bishop = float(w[3]) / 2.0

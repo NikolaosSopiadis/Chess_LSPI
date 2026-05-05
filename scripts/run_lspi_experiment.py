@@ -59,6 +59,12 @@ def normalize_agent_name(name: str) -> str:
     if name.endswith("_basic"):
         return name
 
+    if name.endswith("_slim"):
+        return name
+    
+    if name.startswith("v4"):
+        return f"{name}_slim"
+
     if name.startswith("v"):
         return f"{name}_basic"
 
