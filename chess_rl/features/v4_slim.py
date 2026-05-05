@@ -4,6 +4,7 @@ import numpy as np
 
 from chess_core.board import Board
 from chess_core.piece import Piece as p
+from chess_core.move import Move
 
 from chess_rl.features.base import FeatureSpec
 from chess_rl.rewards.v1_terminal_plus_potential import material_potential
@@ -188,6 +189,15 @@ class V4SlimFeatures:
 
     def __call__(self, board: Board) -> np.ndarray:
         return self.phi_afterstate(board)
+
+    def phi_sa(self, board: Board, move: Move) -> np.ndarray:
+        """
+        Compatibility with older greedy policy code.
+
+        phi_sa(board, move) = features of the afterstate produced by move.
+        """
+        with board.temporary_move(move):
+            return self.phi_afterstate(board)
 
     def _piece_count_features(self, board: Board) -> dict[str, float]:
         counts = {

@@ -863,7 +863,6 @@ class PinnedShardPool:
                     rows_per_sec = int(done_rows) / max(1e-9, float(elapsed))
 
                     pbar_worker0.set_postfix(
-                        rps=f"{rows_per_sec:.0f}",
                         cache=f"{100.0 * hit_rate:.1f}%",
                     )
 

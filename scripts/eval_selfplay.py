@@ -17,6 +17,8 @@ from chess_rl.agents.base import Agent
 from chess_rl.agents.random import RandomAgent
 from chess_rl.agents.material_greedy import MaterialGreedyAgent
 from chess_rl.agents.lspi_v1 import LSPIV1Agent
+from chess_rl.agents.lspi_tactical import LSPITacticalAgent
+from chess_rl.agents.lspi_search import LSPISearchAgent
 try:
     from tqdm.auto import tqdm
 except Exception:
@@ -63,28 +65,87 @@ def _move_to_uci_like(board: Board, move: Move) -> str:
     return s
 
 
+def _canonical_kind(kind: str) -> str:
+    k = kind.lower().strip()
+
+    if k == "random":
+        return "random"
+
+    if k in ("material", "material_greedy", "greedy_material"):
+        return "material"
+
+    if k in ("lspi_plain", "plain", "lspi_v1"):
+        return "lspi_plain"
+
+    if k in ("lspi_tactical", "tactical", "safe", "lspi_safe"):
+        return "lspi_tactical"
+
+    if k in ("lspi_search", "search"):
+        return "lspi_search"
+
+    raise ValueError(f"unknown agent kind: {kind!r}")
+
+
 def _agent_label(kind: str, path: str | None) -> str:
+    canonical = _canonical_kind(kind)
+
     if path:
-        return f"{kind}:{Path(path).stem}"
-    return kind
+        return f"{canonical}:{Path(path).stem}"
+
+    return canonical
 
 
-def make_agent(kind: str, *, path: str | None, default_lspi_path: str, seed: int) -> Agent:
-    kind = kind.lower().strip()
+def _require_checkpoint(path: str | None, default_lspi_path: str, agent_name: str) -> str:
+    ckpt = path or default_lspi_path
 
-    if kind == "random":
+    if not ckpt:
+        raise ValueError(
+            f"{agent_name} requires --lspi-v1-path, --white-path, or --black-path"
+        )
+
+    if not Path(ckpt).exists():
+        raise FileNotFoundError(f"checkpoint does not exist: {ckpt}")
+
+    return ckpt
+
+
+def make_agent(
+    kind: str,
+    *,
+    path: str | None,
+    default_lspi_path: str,
+    seed: int,
+    search_depth: int,
+    search_max_branch: int | None,
+    search_use_draw_safety: bool,
+    search_use_tactical_safety: bool,
+) -> Agent:
+    canonical = _canonical_kind(kind)
+
+    if canonical == "random":
         return RandomAgent(seed=seed)
 
-    if kind in ("material", "material_greedy", "greedy_material"):
+    if canonical == "material":
         return MaterialGreedyAgent(seed=seed)
 
-    if kind in ("lspi", "lspi_v1"):
-        ckpt = path or default_lspi_path
-        if not ckpt:
-            raise ValueError("lspi_v1 requires --lspi-v1-path, --white-path, or --black-path")
-        if not Path(ckpt).exists():
-            raise FileNotFoundError(f"checkpoint does not exist: {ckpt}")
+    if canonical == "lspi_plain":
+        ckpt = _require_checkpoint(path, default_lspi_path, canonical)
         return LSPIV1Agent.load(ckpt)
+
+    if canonical == "lspi_tactical":
+        ckpt = _require_checkpoint(path, default_lspi_path, canonical)
+        return LSPITacticalAgent.load(ckpt)
+
+    if canonical == "lspi_search":
+        ckpt = _require_checkpoint(path, default_lspi_path, canonical)
+
+        return LSPISearchAgent.load(
+            ckpt,
+            depth=search_depth,
+            max_branch=search_max_branch,
+            use_draw_safety=search_use_draw_safety,
+            use_tactical_safety=search_use_tactical_safety,
+        )
 
     raise ValueError(f"unknown agent kind: {kind!r}")
 
@@ -402,8 +463,27 @@ def save_json(path: str, results: list[GameResult]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("--white", required=True, choices=["random", "material", "lspi_v1"])
-    ap.add_argument("--black", required=True, choices=["random", "material", "lspi_v1"])
+    ap.add_argument(
+        "--white",
+        required=True,
+        help=(
+            "White agent. Options/aliases: random, material, "
+            "lspi_plain/plain/lspi_v1, "
+            "lspi_tactical/tactical/safe, "
+            "lspi_search/search."
+        ),
+    )
+
+    ap.add_argument(
+        "--black",
+        required=True,
+        help=(
+            "Black agent. Options/aliases: random, material, "
+            "lspi_plain/plain/lspi_v1, "
+            "lspi_tactical/tactical/safe, "
+            "lspi_search/search."
+        ),
+    )
 
     ap.add_argument("--games", type=int, default=20)
     ap.add_argument("--max-plies", type=int, default=300)
@@ -434,6 +514,32 @@ def main() -> None:
     )
     ap.add_argument("--white-path", default=None, help="Checkpoint path for white agent if needed.")
     ap.add_argument("--black-path", default=None, help="Checkpoint path for black agent if needed.")
+
+    ap.add_argument(
+        "--search-depth",
+        type=int,
+        default=2,
+        help="Depth for lspi_search agents.",
+    )
+
+    ap.add_argument(
+        "--search-max-branch",
+        type=int,
+        default=None,
+        help="Branch cap for lspi_search agents. Default: None/full width.",
+    )
+
+    ap.add_argument(
+        "--search-no-draw-safety",
+        action="store_true",
+        help="Disable draw-safety adjustment for lspi_search agents.",
+    )
+
+    ap.add_argument(
+        "--search-no-tactical-safety",
+        action="store_true",
+        help="Disable tactical-safety adjustment for lspi_search agents.",
+    )
 
     ap.add_argument("--json-out", default=None)
     ap.add_argument("--progress-every", type=int, default=10)
@@ -473,12 +579,20 @@ def main() -> None:
         path=args.white_path,
         default_lspi_path=args.lspi_v1_path,
         seed=args.seed + 101,
+        search_depth=args.search_depth,
+        search_max_branch=args.search_max_branch,
+        search_use_draw_safety=not args.search_no_draw_safety,
+        search_use_tactical_safety=not args.search_no_tactical_safety,
     )
     base_black_agent = make_agent(
         args.black,
         path=args.black_path,
         default_lspi_path=args.lspi_v1_path,
         seed=args.seed + 202,
+        search_depth=args.search_depth,
+        search_max_branch=args.search_max_branch,
+        search_use_draw_safety=not args.search_no_draw_safety,
+        search_use_tactical_safety=not args.search_no_tactical_safety,
     )
 
     use_tqdm = (not args.no_progress) and tqdm is not None
