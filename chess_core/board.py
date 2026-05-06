@@ -1297,6 +1297,285 @@ class Board:
         """
         return len(self.get_all_legal_moves_for_side(white))
 
+    def count_attackers(
+        self,
+        square: int,
+        *,
+        by_white: bool,
+        piece_types: set[int] | frozenset[int] | None = None,
+    ) -> int:
+        """
+        Count how many pieces of the given color attack `square`.
+
+        This is a static pseudo-attack count, not a legal-move count.
+
+        It includes:
+          - pawn attacks, not pawn pushes
+          - attacks/defenses of own occupied squares
+          - pinned pieces as attackers
+
+        Optional `piece_types` can restrict the count, e.g.
+          {p.PAWN}
+          {p.KNIGHT, p.BISHOP}
+          {p.QUEEN}
+        """
+        if not (0 <= square < 64):
+            raise ValueError(f"bad square index: {square}")
+
+        board = self._board
+        isw = IS_WHITE
+        ptype = PTYPE
+
+        count = 0
+
+        def allowed(pc: int) -> bool:
+            return piece_types is None or ptype[pc] in piece_types
+
+        # Pawns.
+        if by_white:
+            wp = p.WHITE_PAWN
+            for s in PAWN_ATTACKERS_WHITE[square]:
+                if board[s] == wp and (piece_types is None or p.PAWN in piece_types):
+                    count += 1
+        else:
+            bp = p.BLACK_PAWN
+            for s in PAWN_ATTACKERS_BLACK[square]:
+                if board[s] == bp and (piece_types is None or p.PAWN in piece_types):
+                    count += 1
+
+        # Knights.
+        kn = p.WHITE_KNIGHT if by_white else p.BLACK_KNIGHT
+        for s in KNIGHT_MOVES[square]:
+            if board[s] == kn and (piece_types is None or p.KNIGHT in piece_types):
+                count += 1
+
+        # Kings.
+        kk = p.WHITE_KING if by_white else p.BLACK_KING
+        for s in KING_MOVES[square]:
+            if board[s] == kk and (piece_types is None or p.KING in piece_types):
+                count += 1
+
+        # Diagonal sliders: bishop / queen.
+        for dir_i in (NE, NW, SE, SW):
+            for s in RAYS[square][dir_i]:
+                pc = board[s]
+                if pc == p.NONE:
+                    continue
+
+                if isw[pc] == by_white:
+                    t = ptype[pc]
+                    if (t == p.BISHOP or t == p.QUEEN) and allowed(pc):
+                        count += 1
+
+                break
+
+        # Orthogonal sliders: rook / queen.
+        for dir_i in (E, W, N, S):
+            for s in RAYS[square][dir_i]:
+                pc = board[s]
+                if pc == p.NONE:
+                    continue
+
+                if isw[pc] == by_white:
+                    t = ptype[pc]
+                    if (t == p.ROOK or t == p.QUEEN) and allowed(pc):
+                        count += 1
+
+                break
+
+        return count
+    
+    def attackers_to(
+        self,
+        square: int,
+        *,
+        by_white: bool,
+        piece_types: set[int] | frozenset[int] | None = None,
+    ) -> list[int]:
+        """
+        Return source squares of pieces of the given color attacking `square`.
+
+        This is mainly useful for feature extraction/debugging.
+        For fast all-board features, prefer attack_counts().
+        """
+        if not (0 <= square < 64):
+            raise ValueError(f"bad square index: {square}")
+
+        board = self._board
+        isw = IS_WHITE
+        ptype = PTYPE
+
+        attackers: list[int] = []
+        append = attackers.append
+
+        def allowed(pc: int) -> bool:
+            return piece_types is None or ptype[pc] in piece_types
+
+        # Pawns.
+        if by_white:
+            wp = p.WHITE_PAWN
+            for s in PAWN_ATTACKERS_WHITE[square]:
+                if board[s] == wp and (piece_types is None or p.PAWN in piece_types):
+                    append(s)
+        else:
+            bp = p.BLACK_PAWN
+            for s in PAWN_ATTACKERS_BLACK[square]:
+                if board[s] == bp and (piece_types is None or p.PAWN in piece_types):
+                    append(s)
+
+        # Knights.
+        kn = p.WHITE_KNIGHT if by_white else p.BLACK_KNIGHT
+        for s in KNIGHT_MOVES[square]:
+            if board[s] == kn and (piece_types is None or p.KNIGHT in piece_types):
+                append(s)
+
+        # Kings.
+        kk = p.WHITE_KING if by_white else p.BLACK_KING
+        for s in KING_MOVES[square]:
+            if board[s] == kk and (piece_types is None or p.KING in piece_types):
+                append(s)
+
+        # Diagonal sliders.
+        for dir_i in (NE, NW, SE, SW):
+            for s in RAYS[square][dir_i]:
+                pc = board[s]
+                if pc == p.NONE:
+                    continue
+
+                if isw[pc] == by_white:
+                    t = ptype[pc]
+                    if (t == p.BISHOP or t == p.QUEEN) and allowed(pc):
+                        append(s)
+
+                break
+
+        # Orthogonal sliders.
+        for dir_i in (E, W, N, S):
+            for s in RAYS[square][dir_i]:
+                pc = board[s]
+                if pc == p.NONE:
+                    continue
+
+                if isw[pc] == by_white:
+                    t = ptype[pc]
+                    if (t == p.ROOK or t == p.QUEEN) and allowed(pc):
+                        append(s)
+
+                break
+
+        return attackers
+    
+    def attack_counts(
+        self,
+        *,
+        by_white: bool,
+        piece_types: set[int] | frozenset[int] | None = None,
+    ) -> tuple[int, ...]:
+        """
+        Return a 64-entry tuple where out[sq] is the number of pieces of
+        `by_white` attacking sq.
+
+        This is a static pseudo-attack map:
+          - own occupied squares are counted as defended
+          - slider attacks include the blocker square, then stop
+          - pinned pieces still attack
+        """
+        board = self._board
+        ptype = PTYPE
+
+        counts = [0] * 64
+
+        def type_allowed(t: int) -> bool:
+            return piece_types is None or t in piece_types
+
+        for src, pc_raw in enumerate(board):
+            pc = int(pc_raw)
+
+            if pc == p.NONE:
+                continue
+
+            if IS_WHITE[pc] != by_white:
+                continue
+
+            t = ptype[pc]
+
+            if not type_allowed(t):
+                continue
+
+            if t == p.PAWN:
+                targets = W_CAPS[src] if by_white else B_CAPS[src]
+                for dst in targets:
+                    counts[dst] += 1
+
+            elif t == p.KNIGHT:
+                for dst in KNIGHT_MOVES[src]:
+                    counts[dst] += 1
+
+            elif t == p.KING:
+                for dst in KING_MOVES[src]:
+                    counts[dst] += 1
+
+            elif t == p.BISHOP:
+                for dir_i in (NE, NW, SE, SW):
+                    for dst in RAYS[src][dir_i]:
+                        counts[dst] += 1
+                        if board[dst] != p.NONE:
+                            break
+
+            elif t == p.ROOK:
+                for dir_i in (E, W, N, S):
+                    for dst in RAYS[src][dir_i]:
+                        counts[dst] += 1
+                        if board[dst] != p.NONE:
+                            break
+
+            elif t == p.QUEEN:
+                for dir_i in range(8):
+                    for dst in RAYS[src][dir_i]:
+                        counts[dst] += 1
+                        if board[dst] != p.NONE:
+                            break
+
+        return tuple(counts)
+    
+    def attack_maps(
+        self,
+        *,
+        piece_types: set[int] | frozenset[int] | None = None,
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """
+        Return (white_attack_counts, black_attack_counts).
+        """
+        return (
+            self.attack_counts(by_white=True, piece_types=piece_types),
+            self.attack_counts(by_white=False, piece_types=piece_types),
+        )
+        
+    def defense_count(
+        self,
+        square: int,
+        *,
+        white_piece: bool,
+        piece_types: set[int] | frozenset[int] | None = None,
+    ) -> int:
+        """
+        Count same-color defenders of a square occupied by a piece of `white_piece`.
+        """
+        return self.count_attackers(square, by_white=white_piece, piece_types=piece_types)
+
+
+    def enemy_attack_count(
+        self,
+        square: int,
+        *,
+        white_piece: bool,
+        piece_types: set[int] | frozenset[int] | None = None,
+    ) -> int:
+        """
+        Count enemy attackers of a square occupied by a piece of `white_piece`.
+        """
+        return self.count_attackers(square, by_white=not white_piece, piece_types=piece_types)
+
 def _on_board(sq: int) -> bool:
     return 0 <= sq < 64
 

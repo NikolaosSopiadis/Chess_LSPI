@@ -90,6 +90,9 @@ def normalize_agent_name(name: str) -> str:
 
         "v5": "v5_center",
         "v5_center": "v5_center",
+
+        "v6": "v6_attackmap",
+        "v6_attackmap": "v6_attackmap",
     }
 
     if name in aliases:

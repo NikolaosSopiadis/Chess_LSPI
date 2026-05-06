@@ -7,6 +7,7 @@ from chess_rl.features.v2_1_basic import V21BasicFeatures
 from chess_rl.features.v3_basic import V3BasicFeatures
 from chess_rl.features.v4_slim import V4SlimFeatures
 from chess_rl.features.v5_center import V5CenterFeatures
+from chess_rl.features.v6_attackmap import V6AttackMapFeatures
 
 
 _FEATURES: dict[str, type[FeatureExtractor]] = {
@@ -16,6 +17,7 @@ _FEATURES: dict[str, type[FeatureExtractor]] = {
     "v3_basic":   V3BasicFeatures,
     "v4_slim":    V4SlimFeatures,
     "v5_center":  V5CenterFeatures,
+    "v6_attackmap": V6AttackMapFeatures,
 }
 
 
