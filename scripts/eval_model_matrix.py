@@ -96,13 +96,13 @@ def canonical_kind(kind: str) -> str:
     if k in ("material", "material_greedy", "greedy_material"):
         return "material"
 
-    if k in ("plain", "lspi_plain", "lspi_v1", "v3.0", "v4.0"):
+    if k in ("plain", "lspi_plain", "lspi_v1", "v3.0", "v4.0", "v5.0_1800", "v5.0_2000"):
         return "plain"
 
-    if k in ("tactical", "safe", "lspi_tactical", "lspi_safe", "v3.1", "v4.1"):
+    if k in ("tactical", "safe", "lspi_tactical", "lspi_safe", "v3.1", "v4.1", "v5.1_1800", "v5.1_2000"):
         return "tactical"
 
-    if k in ("search", "lspi_search", "v3.2", "v4.2"):
+    if k in ("search", "lspi_search", "v3.2", "v4.2", "v5.2_1800", "v5.2_2000"):
         return "search"
 
     raise ValueError(f"unknown model kind: {kind!r}")

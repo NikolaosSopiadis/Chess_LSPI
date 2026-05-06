@@ -45,6 +45,7 @@ _ALLOWED_REWARD_VERSIONS = {
     "pgn_terminal_plus_potential_v1",
     "selfplay_terminal_plus_potential_v1",
     "material_value_anchor_v1",
+    "opening_center_anchor_v1",
 }
 
 

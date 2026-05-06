@@ -15,7 +15,7 @@ from pathlib import Path
 
 PGN_PATH = Path("data/raw/lichess/games/lichess_db_standard_rated_2025-12.pgn.zst")
 
-MIN_ELO = 1800
+MIN_ELO = 2000
 SEED = 1
 
 SHARDS = 12
