@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 import itertools
 import json
@@ -722,6 +723,74 @@ def update_ordered_stats(
         stats.losses += 1
 
 
+def chunk_indexed_positions(
+    start_positions: list[StartPosition],
+    *,
+    chunk_size: int,
+) -> list[list[tuple[int, StartPosition]]]:
+    indexed = list(enumerate(start_positions))
+
+    return [
+        indexed[i : i + chunk_size]
+        for i in range(0, len(indexed), chunk_size)
+    ]
+
+
+def _play_matchup_chunk_worker(
+    *,
+    a: ModelSpec,
+    b: ModelSpec,
+    indexed_positions: list[tuple[int, StartPosition]],
+    max_plies: int,
+    seed: int,
+    game_idx_start: int,
+) -> list[GameResult]:
+    """
+    Worker process function.
+
+    Each worker creates its own agent instances and plays a chunk of positions.
+    This avoids sharing mutable Board/Agent state across processes.
+    """
+    results: list[GameResult] = []
+
+    # Separate agent instances for color directions.
+    a_agent_as_white = make_agent(a, seed=seed + 101)
+    b_agent_as_black = make_agent(b, seed=seed + 202)
+
+    b_agent_as_white = make_agent(b, seed=seed + 303)
+    a_agent_as_black = make_agent(a, seed=seed + 404)
+
+    for pos_idx, start in indexed_positions:
+        # Two games per start position.
+        # Derive stable unique IDs from global position index.
+        game_idx_1 = game_idx_start + 2 * pos_idx
+        game_idx_2 = game_idx_start + 2 * pos_idx + 1
+
+        r1 = play_game(
+            game_idx=game_idx_1,
+            start_fen=start.fen,
+            white_agent=a_agent_as_white,
+            black_agent=b_agent_as_black,
+            white_label=a.label,
+            black_label=b.label,
+            max_plies=max_plies,
+        )
+        results.append(r1)
+
+        r2 = play_game(
+            game_idx=game_idx_2,
+            start_fen=start.fen,
+            white_agent=b_agent_as_white,
+            black_agent=a_agent_as_black,
+            white_label=b.label,
+            black_label=a.label,
+            max_plies=max_plies,
+        )
+        results.append(r2)
+
+    return results
+
+
 def play_matchup(
     *,
     a: ModelSpec,
@@ -732,80 +801,176 @@ def play_matchup(
     game_idx_start: int,
     use_progress: bool,
     progress_every: int,
+    workers: int,
+    chunk_size: int | None,
 ) -> tuple[list[GameResult], int]:
+    if not start_positions:
+        return [], game_idx_start
+
+    workers = max(1, workers)
+
+    # Sequential path: keeps old behavior and avoids multiprocessing overhead.
+    if workers == 1:
+        results: list[GameResult] = []
+        game_idx = game_idx_start
+
+        a_agent_as_white = make_agent(a, seed=seed + 101)
+        b_agent_as_black = make_agent(b, seed=seed + 202)
+
+        b_agent_as_white = make_agent(b, seed=seed + 303)
+        a_agent_as_black = make_agent(a, seed=seed + 404)
+
+        if use_progress and tqdm is not None:
+            iterator = tqdm(
+                start_positions,
+                total=len(start_positions),
+                desc=f"{a.label} vs {b.label}",
+                unit="pos",
+                dynamic_ncols=True,
+                mininterval=0.5,
+            )
+        else:
+            iterator = start_positions
+
+        t0 = time.time()
+
+        for i, start in enumerate(iterator, start=1):
+            r1 = play_game(
+                game_idx=game_idx,
+                start_fen=start.fen,
+                white_agent=a_agent_as_white,
+                black_agent=b_agent_as_black,
+                white_label=a.label,
+                black_label=b.label,
+                max_plies=max_plies,
+            )
+            results.append(r1)
+            game_idx += 1
+
+            r2 = play_game(
+                game_idx=game_idx,
+                start_fen=start.fen,
+                white_agent=b_agent_as_white,
+                black_agent=a_agent_as_black,
+                white_label=b.label,
+                black_label=a.label,
+                max_plies=max_plies,
+            )
+            results.append(r2)
+            game_idx += 1
+
+            if use_progress and tqdm is not None:
+                reason_counts = Counter(r.reason for r in results)
+                iterator.set_postfix(
+                    games=len(results),
+                    mate=reason_counts.get("checkmate", 0),
+                    draw=sum(1 for r in results if r.winner == "draw"),
+                    rep=reason_counts.get("threefold repetition", 0),
+                    max=reason_counts.get("max plies", 0),
+                )
+            elif progress_every > 0 and i % progress_every == 0:
+                elapsed = time.time() - t0
+                rate = i / max(elapsed, 1e-9)
+                remaining = len(start_positions) - i
+                eta = remaining / max(rate, 1e-9)
+
+                print(
+                    f"  {a.label} vs {b.label}: "
+                    f"{i}/{len(start_positions)} positions "
+                    f"({2 * i} games), "
+                    f"elapsed={elapsed:.1f}s, "
+                    f"eta={eta:.1f}s"
+                )
+
+        return results, game_idx
+
+    # Parallel path.
+    total_positions = len(start_positions)
+
+    if chunk_size is None or chunk_size <= 0:
+        # More chunks than workers gives better load balancing.
+        target_chunks = workers * 4
+        chunk_size = max(1, (total_positions + target_chunks - 1) // target_chunks)
+
+    chunks = chunk_indexed_positions(
+        start_positions,
+        chunk_size=chunk_size,
+    )
+
     results: list[GameResult] = []
-    game_idx = game_idx_start
 
-    # Use separate agent instances for each side, even when model specs are identical.
-    a_agent_as_white = make_agent(a, seed=seed + 101)
-    b_agent_as_black = make_agent(b, seed=seed + 202)
+    t0 = time.time()
+    completed_positions = 0
 
-    b_agent_as_white = make_agent(b, seed=seed + 303)
-    a_agent_as_black = make_agent(a, seed=seed + 404)
+    print(
+        f"parallel matchup: {a.label} vs {b.label} | "
+        f"workers={workers}, chunks={len(chunks)}, chunk_size={chunk_size}"
+    )
 
+    progress_bar = None
     if use_progress and tqdm is not None:
-        iterator = tqdm(
-            start_positions,
-            total=len(start_positions),
+        progress_bar = tqdm(
+            total=total_positions,
             desc=f"{a.label} vs {b.label}",
             unit="pos",
             dynamic_ncols=True,
             mininterval=0.5,
         )
-    else:
-        iterator = start_positions
 
-    t0 = time.time()
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        future_to_chunk: dict[Any, list[tuple[int, StartPosition]]] = {}
 
-    for i, start in enumerate(iterator, start=1):
-        r1 = play_game(
-            game_idx=game_idx,
-            start_fen=start.fen,
-            white_agent=a_agent_as_white,
-            black_agent=b_agent_as_black,
-            white_label=a.label,
-            black_label=b.label,
-            max_plies=max_plies,
-        )
-        results.append(r1)
-        game_idx += 1
-
-        r2 = play_game(
-            game_idx=game_idx,
-            start_fen=start.fen,
-            white_agent=b_agent_as_white,
-            black_agent=a_agent_as_black,
-            white_label=b.label,
-            black_label=a.label,
-            max_plies=max_plies,
-        )
-        results.append(r2)
-        game_idx += 1
-
-        if use_progress and tqdm is not None:
-            reason_counts = Counter(r.reason for r in results)
-            iterator.set_postfix(
-                games=len(results),
-                mate=reason_counts.get("checkmate", 0),
-                draw=sum(1 for r in results if r.winner == "draw"),
-                rep=reason_counts.get("threefold repetition", 0),
-                max=reason_counts.get("max plies", 0),
+        for chunk_idx, chunk in enumerate(chunks):
+            fut = pool.submit(
+                _play_matchup_chunk_worker,
+                a=a,
+                b=b,
+                indexed_positions=chunk,
+                max_plies=max_plies,
+                seed=seed + 1000 * chunk_idx,
+                game_idx_start=game_idx_start,
             )
-        elif progress_every > 0 and i % progress_every == 0:
-            elapsed = time.time() - t0
-            rate = i / max(elapsed, 1e-9)
-            remaining = len(start_positions) - i
-            eta = remaining / max(rate, 1e-9)
+            future_to_chunk[fut] = chunk
 
-            print(
-                f"  {a.label} vs {b.label}: "
-                f"{i}/{len(start_positions)} positions "
-                f"({2 * i} games), "
-                f"elapsed={elapsed:.1f}s, "
-                f"eta={eta:.1f}s"
-            )
+        for fut in as_completed(future_to_chunk):
+            chunk = future_to_chunk[fut]
+            chunk_results = fut.result()
 
-    return results, game_idx
+            results.extend(chunk_results)
+            completed_positions += len(chunk)
+
+            if progress_bar is not None:
+                reason_counts = Counter(r.reason for r in results)
+                progress_bar.update(len(chunk))
+                progress_bar.set_postfix(
+                    games=len(results),
+                    mate=reason_counts.get("checkmate", 0),
+                    draw=sum(1 for r in results if r.winner == "draw"),
+                    rep=reason_counts.get("threefold repetition", 0),
+                    max=reason_counts.get("max plies", 0),
+                )
+            elif progress_every > 0:
+                elapsed = time.time() - t0
+                rate = completed_positions / max(elapsed, 1e-9)
+                remaining = total_positions - completed_positions
+                eta = remaining / max(rate, 1e-9)
+
+                print(
+                    f"  {a.label} vs {b.label}: "
+                    f"{completed_positions}/{total_positions} positions "
+                    f"({len(results)} games), "
+                    f"elapsed={elapsed:.1f}s, "
+                    f"eta={eta:.1f}s"
+                )
+
+    if progress_bar is not None:
+        progress_bar.close()
+
+    # Parallel futures complete out of order. Sort back into deterministic order.
+    results.sort(key=lambda r: r.game_idx)
+
+    next_game_idx = game_idx_start + 2 * total_positions
+    return results, next_game_idx
 
 
 def print_models(models: list[ModelSpec]) -> None:
@@ -880,9 +1045,10 @@ def print_pair_summary(
         f"avg_plies={ba.avg_plies:.1f}"
     )
 
+    # ab.reasons and ba.reasons contain the same games from opposite perspectives,
+    # so do not add them together.
     print("Reasons:")
-    combined = ab.reasons + ba.reasons
-    for reason, count in combined.most_common():
+    for reason, count in ab.reasons.most_common():
         print(f"  {reason}: {count}")
 
 
@@ -986,18 +1152,11 @@ def print_tag_summary(
             line = f"{row:>{width}s}"
 
             for col in labels:
-                if row == col:
-                    s = tag_stats.get((row, col, tag))
-                    if s is None or s.games == 0:
-                        cell = "—"
-                    else:
-                        cell = f"{100.0 * s.score_rate:.1f}%"
+                s = tag_stats.get((row, col, tag))
+                if s is None or s.games == 0:
+                    cell = "—"
                 else:
-                    s = tag_stats.get((row, col, tag))
-                    if s is None or s.games == 0:
-                        cell = "—"
-                    else:
-                        cell = f"{100.0 * s.score_rate:.1f}%"
+                    cell = f"{100.0 * s.score_rate:.1f}%"
 
                 line += f"{cell:>{width}s}"
 
@@ -1099,6 +1258,26 @@ def main() -> None:
     )
 
     ap.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of worker processes for parallel game evaluation. "
+            "Use 1 for sequential. For your Ryzen 5 5600, 6-11 are reasonable values."
+        ),
+    )
+
+    ap.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help=(
+            "Positions per worker task. Smaller improves load balancing; "
+            "larger reduces checkpoint-loading overhead. Try 2 first."
+        ),
+    )
+
+    ap.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable tqdm progress bars.",
@@ -1132,6 +1311,8 @@ def main() -> None:
     print(f"position source:                    {args.position_source}")
     print(f"positions json:                     {args.positions_json}")
     print(f"random opening plies:               {args.random_openings}")
+    print(f"workers:                            {args.workers}")
+    print(f"chunk size:                         {args.chunk_size}")
     print(f"seed:                               {args.seed}")
 
     start_positions = generate_start_positions(
@@ -1181,6 +1362,8 @@ def main() -> None:
             game_idx_start=game_idx,
             use_progress=not args.no_progress,
             progress_every=args.progress_every,
+            workers=args.workers,
+            chunk_size=args.chunk_size,
         )
 
         all_results.extend(results)
