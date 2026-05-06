@@ -1,5 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Sequence
+from dataclasses import dataclass
+
 import pygame as pg
 import pygame_gui as pgg
 
@@ -18,8 +20,6 @@ from chess_core.move import (
 
 from chess_rl.agents.base import Agent
 from chess_rl.agents.registry import HUMAN, player_options, make_player
-
-from dataclasses import dataclass
 
 # type-only, no runtime imports
 # if TYPE_CHECKING:
@@ -155,6 +155,7 @@ class Controller:
                         white_player_id=sb.get_white_player_id(),
                         black_player_id=sb.get_black_player_id(),
                     )
+
                 elif event.ui_element == sb._flip_board_button:
                     self.flip_board()
 
@@ -399,24 +400,221 @@ class Controller:
 
         return self._move_history[move_idx].move
 
+    def _san_piece_letter(self, piece: int) -> str:
+        match p.piece_type(piece):
+            case p.KING:
+                return "K"
+            case p.QUEEN:
+                return "Q"
+            case p.ROOK:
+                return "R"
+            case p.BISHOP:
+                return "B"
+            case p.KNIGHT:
+                return "N"
+            case p.PAWN:
+                return ""
+            case _:
+                return "?"
+
+    def _san_promotion_letter(self, promotion: int) -> str:
+        return {
+            PROMO_QUEEN: "Q",
+            PROMO_ROOK: "R",
+            PROMO_BISHOP: "B",
+            PROMO_KNIGHT: "N",
+        }.get(promotion, "?")
+
+    def _move_is_capture_before_move(self, move: Move) -> bool:
+        """
+        Return True if `move` is a capture in the current pre-move position.
+
+        This also handles en-passant-style pawn captures where the destination
+        square is empty but the pawn moves diagonally onto the EP target.
+        """
+        board_arr = self._model.get_board()
+
+        moving_piece = int(board_arr[move.src_square])
+        dst_piece = int(board_arr[move.dst_square])
+
+        if dst_piece != p.NONE:
+            return True
+
+        # En passant: pawn moves diagonally to an empty en-passant target square.
+        if p.piece_type(moving_piece) == p.PAWN:
+            src_alg = self._model.idx_to_algebraic(move.src_square)
+            dst_alg = self._model.idx_to_algebraic(move.dst_square)
+
+            moved_diagonally = src_alg[0] != dst_alg[0]
+            ep_target = getattr(self._model, "_en_passant_target", None)
+
+            if moved_diagonally and ep_target == move.dst_square:
+                return True
+
+        return False
+
+    def _san_disambiguation(self, move: Move, moving_piece: int) -> str:
+        """
+        SAN disambiguation for pieces.
+
+        Examples:
+          Nbd2
+          R1e1
+          Qh4e1 in rare full-disambiguation cases
+
+        Pawns do not use this.
+        """
+        piece_type = p.piece_type(moving_piece)
+
+        if piece_type in (p.PAWN, p.KING):
+            return ""
+
+        mover_white = p.is_white(moving_piece)
+
+        alternatives: list[Move] = []
+
+        for other in self._model.get_all_legal_moves():
+            if other.src_square == move.src_square:
+                continue
+
+            if other.dst_square != move.dst_square:
+                continue
+
+            other_piece = int(self._model.get_board()[other.src_square])
+
+            if other_piece == p.NONE:
+                continue
+
+            if p.is_white(other_piece) != mover_white:
+                continue
+
+            if p.piece_type(other_piece) != piece_type:
+                continue
+
+            alternatives.append(other)
+
+        if not alternatives:
+            return ""
+
+        src_alg = self._model.idx_to_algebraic(move.src_square)
+        src_file = src_alg[0]
+        src_rank = src_alg[1:]
+
+        alt_algs = [
+            self._model.idx_to_algebraic(other.src_square)
+            for other in alternatives
+        ]
+
+        same_file_exists = any(alg[0] == src_file for alg in alt_algs)
+        same_rank_exists = any(alg[1:] == src_rank for alg in alt_algs)
+
+        # PGN/SAN rule:
+        # - if no same-type piece from the same file can also move there, use file
+        # - else if no same-type piece from the same rank can also move there, use rank
+        # - else use full square
+        if not same_file_exists:
+            return src_file
+
+        if not same_rank_exists:
+            return src_rank
+
+        return src_alg
+
+    def _san_check_suffix_after_move(self, move: Move) -> str:
+        """
+        Return '+', '#', or '' by temporarily applying the move.
+
+        This must inspect the after-position, but the real board state must be
+        restored before Controller.make_move() applies the move for real.
+        """
+
+        def suffix_from_current_after_position() -> str:
+            done, reason = self._model.game_end_state()
+
+            if done and reason == "checkmate":
+                return "#"
+
+            # After a legal move, side-to-move is the opponent.
+            if self._model.in_check(self._model.get_is_white_to_move()):
+                return "+"
+
+            return ""
+
+        # Prefer Board.temporary_move() if present.
+        temporary_move = getattr(self._model, "temporary_move", None)
+        if temporary_move is not None:
+            with temporary_move(move):
+                return suffix_from_current_after_position()
+
+        # Fallback for older Board versions.
+        state = self._model.get_state()
+        ok = self._model.make_move(move)
+
+        try:
+            if not ok:
+                return ""
+
+            return suffix_from_current_after_position()
+
+        finally:
+            self._model.set_state(state)
+
     def _format_move_notation(self, move: Move) -> str:
-        # Simple coordinate notation, not SAN.
-        # Examples: e2e4, e7e8=Q, O-O, O-O-O
+        """
+        Format a move in SAN-like PGN notation.
+
+        Examples:
+          e4
+          Nf3
+          Nbd2
+          exd5
+          Bxc6+
+          O-O
+          O-O-O
+          e8=Q
+          Qxe1#
+
+        This is movetext SAN, not a full PGN file with headers.
+        """
+        moving_piece = int(self._model.get_board()[move.src_square])
+
+        if moving_piece == p.NONE:
+            return "?"
+
+        src_alg = self._model.idx_to_algebraic(move.src_square)
+        dst_alg = self._model.idx_to_algebraic(move.dst_square)
+
+        # Castling.
         if move.flags & F_CASTLE:
-            return "O-O" if (move.dst_square & 7) > (move.src_square & 7) else "O-O-O"
+            san = "O-O" if dst_alg[0] > src_alg[0] else "O-O-O"
+            return san + self._san_check_suffix_after_move(move)
 
-        s = self._model.idx_to_algebraic(move.src_square) + self._model.idx_to_algebraic(move.dst_square)
+        piece_type = p.piece_type(moving_piece)
+        is_capture = self._move_is_capture_before_move(move)
 
-        if move.promotion != PROMO_NONE:
-            promo = {
-                PROMO_QUEEN: "Q",
-                PROMO_ROOK: "R",
-                PROMO_BISHOP: "B",
-                PROMO_KNIGHT: "N",
-            }.get(move.promotion, "?")
-            s += f"={promo}"
+        # Pawn moves are special in SAN.
+        if piece_type == p.PAWN:
+            if is_capture:
+                # Pawn captures include the source file: exd5
+                san = f"{src_alg[0]}x{dst_alg}"
+            else:
+                san = dst_alg
 
-        return s
+            if move.promotion != PROMO_NONE:
+                san += f"={self._san_promotion_letter(move.promotion)}"
+
+            san += self._san_check_suffix_after_move(move)
+            return san
+
+        # Piece move.
+        piece_letter = self._san_piece_letter(moving_piece)
+        disambiguation = self._san_disambiguation(move, moving_piece)
+        capture_text = "x" if is_capture else ""
+
+        san = f"{piece_letter}{disambiguation}{capture_text}{dst_alg}"
+
+        san += self._san_check_suffix_after_move(move)
+        return san
 
     def get_move_history_text(self) -> str:
         if not self._move_history:
@@ -479,3 +677,30 @@ class Controller:
 
     def flip_board(self) -> None:
         self._view._board.flip_board()
+
+    def _pgn_result_string(self) -> str:
+        """
+        Return PGN result marker for the current/latest game state.
+        """
+        if not self._position_history:
+            return "*"
+
+        # Preserve review state if the user is browsing history.
+        old_state = self._model.get_state()
+
+        try:
+            self._model.set_state(self._position_history[-1])
+
+            done, reason = self._model.game_end_state()
+
+            if not done:
+                return "*"
+
+            if reason == "checkmate":
+                # Side to move is checkmated.
+                return "0-1" if self._model.get_is_white_to_move() else "1-0"
+
+            return "1/2-1/2"
+
+        finally:
+            self._model.set_state(old_state)
