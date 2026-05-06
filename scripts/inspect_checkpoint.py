@@ -194,6 +194,61 @@ FEATURE_NAMES: dict[str, list[str]] = {
         "black_king_zone_attacked",
     ],
 
+    "v5_center": [
+        # v4_slim base
+        "bias",
+        "pawn_diff",
+        "knight_diff",
+        "bishop_diff",
+        "rook_diff",
+        "queen_diff",
+        "side_to_move_pm",
+        "white_in_check",
+        "black_in_check",
+        "mobility_diff",
+        "attacked_material_diff",
+        "hanging_material_diff",
+        "king_pressure_diff",
+        "pawn_advancement_diff",
+        "passed_pawn_diff",
+        "promotion_pressure_diff",
+        "terminal_checkmate_white_wins",
+        "terminal_checkmate_black_wins",
+        "white_ahead_draw_terminal",
+        "black_ahead_draw_terminal",
+        "white_ahead_repeat_risk",
+        "black_ahead_repeat_risk",
+        "halfmove_pressure_white_ahead",
+        "halfmove_pressure_black_ahead",
+        "castled_diff",
+        "king_walked_uncastled_diff",
+        "pawn_shield_diff",
+        "king_zone_safety_diff",
+        "open_file_safety_diff",
+        "development_diff",
+        "queen_development_diff",
+        "white_castled",
+        "black_castled",
+        "white_pawn_shield",
+        "black_pawn_shield",
+        "white_king_zone_attacked",
+        "black_king_zone_attacked",
+
+        # v5 center features
+        "center_pawn_presence_diff",
+        "extended_center_pawn_presence_diff",
+        "center_piece_occupation_diff",
+        "center_control_diff",
+        "extended_center_control_diff",
+        "center_minor_control_diff",
+        "center_pawn_control_diff",
+        "opening_center_control_diff",
+        "opening_center_pawn_presence_diff",
+        "queen_out_before_center_diff",
+        "white_queen_out_before_center",
+        "black_queen_out_before_center",
+    ]
+
 }
 
 
@@ -244,6 +299,9 @@ def infer_feature_version(w: np.ndarray, meta: dict[str, Any]) -> str:
     if len(w) == 37:
         return "v4_slim"
 
+    if len(w) == 49:
+        return "v5_center"
+
     return "unknown"
 
 
@@ -266,7 +324,7 @@ def print_effective_piece_values(feature_version: str, w: np.ndarray) -> None:
         rook = material_w * 0.500 + float(w[5]) / 2.0
         queen = material_w * 0.900 + float(w[6])
 
-    elif feature_version in ("v2_1_basic", "v3_basic", "v4_slim"):
+    elif feature_version in ("v2_1_basic", "v3_basic", "v4_slim", "v5_center"):
         pawn = float(w[1]) / 8.0
         knight = float(w[2]) / 2.0
         bishop = float(w[3]) / 2.0
@@ -299,7 +357,7 @@ def main() -> None:
     ap.add_argument(
         "--features",
         default=None,
-        help="Override feature version, e.g. v1_basic, v2_basic, v2_1_basic, v3_basic.",
+        help="Override feature version, e.g. v1_basic, v2_basic, v2_1_basic, v3_basic, v4_slim, v5_center.",
     )
     args = ap.parse_args()
 
