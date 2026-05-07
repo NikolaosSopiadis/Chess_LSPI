@@ -1576,6 +1576,119 @@ class Board:
         """
         return self.count_attackers(square, by_white=not white_piece, piece_types=piece_types)
 
+    def piece_at(self, sq: int) -> int:
+        return int(self._board[sq])
+
+    def king_square(self, white: bool) -> int:
+        return self._white_king_sq if white else self._black_king_sq
+
+
+    def queen_square(self, white: bool) -> int | None:
+        target = p.WHITE_QUEEN if white else p.BLACK_QUEEN
+
+        for sq, pc in enumerate(self._board):
+            if int(pc) == target:
+                return sq
+
+        return None
+        
+    def move_gives_check(self, move: Move) -> bool:
+        side = self._is_white_to_move
+
+        undo = self._do_move(move)
+        try:
+            return self.in_check(not side)
+        finally:
+            self._undo_move(undo)
+
+    def move_gives_checkmate(self, move: Move) -> bool:
+        side = self._is_white_to_move
+
+        undo = self._do_move(move)
+        try:
+            done, reason = self.game_end_state()
+            return done and reason == "checkmate" and self.in_check(not side)
+        finally:
+            self._undo_move(undo)
+
+    def legal_moves_attacking_square(
+        self,
+        *,
+        white: bool,
+        square: int,
+        piece_types: set[int] | frozenset[int] | None = None,
+    ) -> list[Move]:
+        """
+        Return legal moves by `white` that result in `square` being attacked by `white`.
+
+        Useful for tempo-threat features:
+        - legal moves attacking the enemy queen
+        - legal moves attacking loose pieces
+        - legal moves attacking king-zone squares
+        """
+        old_turn = self._is_white_to_move
+        old_ep = self._en_passant_target
+        old_zkey = self._zkey
+
+        try:
+            self._is_white_to_move = white
+
+            if white != old_turn:
+                self._en_passant_target = None
+
+            self._zkey = self._recompute_zobrist()
+
+            moves = self.get_all_legal_moves()
+            out: list[Move] = []
+
+            for m in moves:
+                moved_piece = int(self._board[m.src_square])
+                if piece_types is not None and PTYPE[moved_piece] not in piece_types:
+                    continue
+
+                undo = self._do_move(m)
+                try:
+                    if self.is_square_attacked(square, by_white=white):
+                        out.append(m)
+                finally:
+                    self._undo_move(undo)
+
+            return out
+
+        finally:
+            self._is_white_to_move = old_turn
+            self._en_passant_target = old_ep
+            self._zkey = old_zkey
+
+    @contextmanager
+    def temporary_side_to_move(self, white: bool) -> Iterator[None]:
+        """
+        Temporarily set the side to move.
+
+        Useful for static/evaluation queries where we want legal moves for either side.
+
+        If querying the non-actual side to move, en-passant is disabled to avoid
+        bogus EP moves.
+        """
+        old_turn = self._is_white_to_move
+        old_ep = self._en_passant_target
+        old_zkey = self._zkey
+
+        try:
+            self._is_white_to_move = white
+
+            if white != old_turn:
+                self._en_passant_target = None
+
+            self._zkey = self._recompute_zobrist()
+
+            yield
+
+        finally:
+            self._is_white_to_move = old_turn
+            self._en_passant_target = old_ep
+            self._zkey = old_zkey
+
 def _on_board(sq: int) -> bool:
     return 0 <= sq < 64
 

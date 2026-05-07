@@ -11,6 +11,7 @@ from chess_rl.agents.lspi_search import LSPISearchAgent
 
 
 HUMAN = "Human"
+LSPI_V7_SEARCH_1M = "LSPI v7.2 1M Search"
 LSPI_V6_SEARCH_100k = "LSPI v6.2 100k Search"
 LSPI_V5_SEARCH_1M = "LSPI v5.2 1M Search" # center
 LSPI_V5_SEARCH_100k = "LSPI v5.2 100k Search" #center
@@ -32,10 +33,12 @@ LSPI_V5_100k_CHECKPOINT = Path("data/processed/checkpoints/lspi_v5_center_mix_pg
 LSPI_V5_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v5_center_mix_pgn650k_anchor250k_center100k_2000elo_reg1e-1.npz")
 LSPI_V5_100k_CHECKPOINT = Path("data/processed/checkpoints/lspi_v5_center_mix_pgn135k_material50k_center15k_2000elo_reg1e-1.npz")
 LSPI_V6_100k_CHECKPOINT = Path("data/processed/checkpoints/lspi_v6_attackmap_mix_pgn150k_anchor50k_2000elo_reg1e-1.npz")
+LSPI_V7_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v7_api_tactics_mix_pgn750k_anchor250k_2000elo_reg1e-1.npz")
 
 def player_options() -> list[str]:
     return [
         HUMAN,
+        LSPI_V7_SEARCH_1M,
         LSPI_V6_SEARCH_100k,
         LSPI_V5_SEARCH_100k,
         LSPI_V5_SEARCH_1M,
@@ -145,6 +148,18 @@ def make_player(player_id: str) -> Agent | None:
 
         return LSPISearchAgent.load(
             str(LSPI_V6_100k_CHECKPOINT),
+            depth=2,
+            max_branch=None,
+            use_draw_safety=True,
+            use_tactical_safety=False,
+        )
+
+    if player_id == LSPI_V7_SEARCH_1M:
+        if not LSPI_V7_1M_CHECKPOINT.exists():
+            raise FileNotFoundError(f"Missing LSPI v7 1M checkpoint: {LSPI_V7_1M_CHECKPOINT}")
+
+        return LSPISearchAgent.load(
+            str(LSPI_V7_1M_CHECKPOINT),
             depth=2,
             max_branch=None,
             use_draw_safety=True,

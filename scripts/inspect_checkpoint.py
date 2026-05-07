@@ -310,6 +310,78 @@ FEATURE_NAMES: dict[str, list[str]] = {
         "overloaded_piece_pressure_diff",
         "multi_attacked_material_diff",
         "tempo_liability_diff",
+    ],
+    
+    "v7_api_tactics": [
+        # v6
+        "bias",
+        "pawn_diff",
+        "knight_diff",
+        "bishop_diff",
+        "rook_diff",
+        "queen_diff",
+        "side_to_move_pm",
+        "white_in_check",
+        "black_in_check",
+        "mobility_diff",
+        "attacked_material_diff",
+        "hanging_material_diff",
+        "king_pressure_diff",
+        "pawn_advancement_diff",
+        "passed_pawn_diff",
+        "promotion_pressure_diff",
+        "terminal_checkmate_white_wins",
+        "terminal_checkmate_black_wins",
+        "white_ahead_draw_terminal",
+        "black_ahead_draw_terminal",
+        "white_ahead_repeat_risk",
+        "black_ahead_repeat_risk",
+        "halfmove_pressure_white_ahead",
+        "halfmove_pressure_black_ahead",
+        "castled_diff",
+        "king_walked_uncastled_diff",
+        "pawn_shield_diff",
+        "king_zone_safety_diff",
+        "open_file_safety_diff",
+        "development_diff",
+        "queen_development_diff",
+        "white_castled",
+        "black_castled",
+        "white_pawn_shield",
+        "black_pawn_shield",
+        "white_king_zone_attacked",
+        "black_king_zone_attacked",
+
+        # v6 attack-map features
+        "attack_coverage_diff",
+        "attack_volume_diff",
+        "minor_attack_volume_diff",
+        "pawn_attack_volume_diff",
+        "nonqueen_attack_volume_diff",
+        "center_attack_volume_diff",
+        "extended_center_attack_volume_diff",
+        "own_piece_defense_volume_diff",
+        "king_zone_attack_volume_diff",
+        "king_zone_multi_attack_diff",
+        "king_zone_pawn_attack_diff",
+        "king_zone_minor_attack_diff",
+        "king_zone_net_attack_diff",
+        "queen_pressure_diff",
+        "queen_pressure_by_minor_or_pawn_diff",
+        "queen_net_attack_defense_diff",
+        "loose_piece_pressure_diff",
+        "overloaded_piece_pressure_diff",
+        "multi_attacked_material_diff",
+        "tempo_liability_diff",
+        
+        # v7
+        "legal_checking_moves_diff",
+        "safe_checking_moves_diff",
+        "mate_in_one_threat_diff",
+        "safe_capture_value_diff",
+        "unsafe_capture_liability_diff",
+        "queen_tempo_threat_diff",
+        "queen_tempo_threat_by_minor_or_pawn_diff",
     ]
 
 }
@@ -368,6 +440,9 @@ def infer_feature_version(w: np.ndarray, meta: dict[str, Any]) -> str:
     if len(w) == 65:
         return "v6_attackmap"
 
+    if len(w) == 64:
+        return "v7_api_tactics"
+
     return "unknown"
 
 
@@ -390,7 +465,15 @@ def print_effective_piece_values(feature_version: str, w: np.ndarray) -> None:
         rook = material_w * 0.500 + float(w[5]) / 2.0
         queen = material_w * 0.900 + float(w[6])
 
-    elif feature_version in ("v2_1_basic", "v3_basic", "v4_slim", "v5_center", "v6_attackmap"):
+    elif feature_version in (
+        "v2_1_basic",
+        "v3_basic",
+        "v4_basic",
+        "v4_slim",
+        "v5_center",
+        "v6_attackmap",
+        "v7_api_tactics",
+    ):
         pawn = float(w[1]) / 8.0
         knight = float(w[2]) / 2.0
         bishop = float(w[3]) / 2.0
@@ -423,7 +506,7 @@ def main() -> None:
     ap.add_argument(
         "--features",
         default=None,
-        help="Override feature version, e.g. v1_basic, v2_basic, v2_1_basic, v3_basic, v4_slim, v5_center.",
+        help="Override feature version, e.g. v1_basic, v2_basic, v2_1_basic, v3_basic, v4_slim, v5_center, v7_api_tactics.",
     )
     args = ap.parse_args()
 
