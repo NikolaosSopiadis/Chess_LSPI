@@ -431,6 +431,98 @@ FEATURE_NAMES: dict[str, list[str]] = {
         "unsafe_capture_liability_diff",
         "queen_tempo_threat_diff",
         "queen_tempo_threat_by_minor_or_pawn_diff",
+    ],
+    
+    "v9_response_tactics": [
+        # 0..43 = v8_api_tactics_clean
+        "bias",
+        "pawn_diff",
+        "knight_diff",
+        "bishop_diff",
+        "rook_diff",
+        "queen_diff",
+        "side_to_move_pm",
+        "white_in_check",
+        "black_in_check",
+        "mobility_diff",
+        "attacked_material_diff",
+        "hanging_material_diff",
+        "king_pressure_diff",
+        "pawn_advancement_diff",
+        "passed_pawn_diff",
+        "promotion_pressure_diff",
+        "terminal_checkmate_white_wins",
+        "terminal_checkmate_black_wins",
+        "white_ahead_draw_terminal",
+        "black_ahead_draw_terminal",
+        "white_ahead_repeat_risk",
+        "black_ahead_repeat_risk",
+        "halfmove_pressure_white_ahead",
+        "halfmove_pressure_black_ahead",
+        "castled_diff",
+        "king_walked_uncastled_diff",
+        "pawn_shield_diff",
+        "king_zone_safety_diff",
+        "open_file_safety_diff",
+        "development_diff",
+        "queen_development_diff",
+        "white_castled",
+        "black_castled",
+        "white_pawn_shield",
+        "black_pawn_shield",
+        "white_king_zone_attacked",
+        "black_king_zone_attacked",
+        "legal_checking_moves_diff",
+        "safe_checking_moves_diff",
+        "mate_in_one_threat_diff",
+        "safe_capture_value_diff",
+        "unsafe_capture_liability_diff",
+        "queen_tempo_threat_diff",
+        "queen_tempo_threat_by_minor_or_pawn_diff",
+
+        # 44..57 concrete components behind v8 tactical diffs
+        "white_legal_checking_moves",
+        "black_legal_checking_moves",
+        "white_safe_checking_moves",
+        "black_safe_checking_moves",
+        "white_mate_in_one_moves",
+        "black_mate_in_one_moves",
+        "white_safe_capture_value",
+        "black_safe_capture_value",
+        "white_best_safe_capture_value",
+        "black_best_safe_capture_value",
+        "white_unsafe_capture_liability",
+        "black_unsafe_capture_liability",
+        "white_queen_tempo_minor_or_pawn",
+        "black_queen_tempo_minor_or_pawn",
+
+        # 58..62 side-to-move immediate response features
+        "stm_safe_capture_value_pm",
+        "stm_best_safe_capture_value_pm",
+        "stm_safe_checking_moves_pm",
+        "stm_mate_in_one_moves_pm",
+        "stm_queen_tempo_minor_or_pawn_pm",
+
+        # 63..67 not-side-to-move latent threat features
+        "ntm_safe_capture_value_pm",
+        "ntm_best_safe_capture_value_pm",
+        "ntm_safe_checking_moves_pm",
+        "ntm_mate_in_one_moves_pm",
+        "ntm_queen_tempo_minor_or_pawn_pm",
+
+        # 68..79 concrete opening / queen exposure features
+        "white_queen_exposure_opening",
+        "black_queen_exposure_opening",
+        "queen_exposure_liability_diff",
+        "white_unfinished_development_opening",
+        "black_unfinished_development_opening",
+        "development_deficit_diff",
+        "white_king_center_opening",
+        "black_king_center_opening",
+        "king_center_liability_diff",
+        "white_castle_ready_opening",
+        "black_castle_ready_opening",
+        "castle_readiness_diff",
     ]
 
 }
@@ -495,6 +587,9 @@ def infer_feature_version(w: np.ndarray, meta: dict[str, Any]) -> str:
     if len(w) == 44:
         return "v8_api_tactics_clean"
 
+    if len(w) == 80:
+        return "v9_response_tactics"
+
     return "unknown"
 
 
@@ -526,6 +621,7 @@ def print_effective_piece_values(feature_version: str, w: np.ndarray) -> None:
         "v6_attackmap",
         "v7_api_tactics",
         "v8_api_tactics_clean",
+        "v9_response_tactics",
     ):
         pawn = float(w[1]) / 8.0
         knight = float(w[2]) / 2.0
@@ -559,7 +655,7 @@ def main() -> None:
     ap.add_argument(
         "--features",
         default=None,
-        help="Override feature version, e.g. v1_basic, v2_basic, v2_1_basic, v3_basic, v4_slim, v5_center, v7_api_tactics.",
+        help="Override feature version, e.g. v1_basic, v2_basic, v2_1_basic, v3_basic, v4_slim, v5_center, v7_api_tactics, v9_response_tactics.",
     )
     args = ap.parse_args()
 
