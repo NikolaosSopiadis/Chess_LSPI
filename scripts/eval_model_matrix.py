@@ -86,6 +86,37 @@ class OrderedStats:
             return 0.0
         return self.plies / self.games
 
+@dataclass
+class OpeningBehaviorStats:
+    games: int = 0
+
+    queen_moves_10: int = 0
+    queen_out_10: int = 0
+
+    castled_20: int = 0
+
+    minor_dev_10: int = 0
+    center_pawns_8: int = 0
+
+    @property
+    def avg_queen_moves_10(self) -> float:
+        return self.queen_moves_10 / self.games if self.games else 0.0
+
+    @property
+    def queen_out_rate_10(self) -> float:
+        return self.queen_out_10 / self.games if self.games else 0.0
+
+    @property
+    def castle_rate_20(self) -> float:
+        return self.castled_20 / self.games if self.games else 0.0
+
+    @property
+    def avg_minor_dev_10(self) -> float:
+        return self.minor_dev_10 / self.games if self.games else 0.0
+
+    @property
+    def avg_center_pawns_8(self) -> float:
+        return self.center_pawns_8 / self.games if self.games else 0.0
 
 def canonical_kind(kind: str) -> str:
     k = kind.lower().strip()
@@ -1171,6 +1202,7 @@ def save_json(
     results: list[GameResult],
     stats: dict[tuple[str, str], OrderedStats],
     tag_stats: dict[tuple[str, str, str], OrderedStats],
+    behavior_stats: dict[str, OpeningBehaviorStats],
 ) -> None:
     payload: dict[str, Any] = {
         "models": [asdict(m) for m in models],
@@ -1200,6 +1232,24 @@ def save_json(
             }
             for (a, b, tag), s in tag_stats.items()
         },
+        "opening_behavior_stats": {
+            label: {
+                "games": s.games,
+                "avg_queen_moves_10": s.avg_queen_moves_10,
+                "queen_out_rate_10": s.queen_out_rate_10,
+                "castle_rate_20": s.castle_rate_20,
+                "avg_minor_dev_10": s.avg_minor_dev_10,
+                "avg_center_pawns_8": s.avg_center_pawns_8,
+                "raw": {
+                    "queen_moves_10": s.queen_moves_10,
+                    "queen_out_10": s.queen_out_10,
+                    "castled_20": s.castled_20,
+                    "minor_dev_10": s.minor_dev_10,
+                    "center_pawns_8": s.center_pawns_8,
+                },
+            }
+            for label, s in behavior_stats.items()
+        },
     }
 
     out = Path(path)
@@ -1207,6 +1257,73 @@ def save_json(
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"\nSaved JSON: {out}")
 
+def update_opening_behavior_stats(
+    stats: OpeningBehaviorStats,
+    *,
+    result: GameResult,
+    label: str,
+) -> None:
+    stats.games += 1
+
+    if result.white_label == label:
+        stats.queen_moves_10 += result.white_queen_moves_10
+        stats.queen_out_10 += int(result.white_queen_out_10)
+        stats.castled_20 += int(result.white_castled_20)
+        stats.minor_dev_10 += result.white_minor_dev_10
+        stats.center_pawns_8 += result.white_center_pawns_8
+        return
+
+    if result.black_label == label:
+        stats.queen_moves_10 += result.black_queen_moves_10
+        stats.queen_out_10 += int(result.black_queen_out_10)
+        stats.castled_20 += int(result.black_castled_20)
+        stats.minor_dev_10 += result.black_minor_dev_10
+        stats.center_pawns_8 += result.black_center_pawns_8
+        return
+
+    raise ValueError(f"label {label!r} not found in result {result}")
+
+def print_opening_behavior_summary(
+    *,
+    models: list[ModelSpec],
+    behavior_stats: dict[str, OpeningBehaviorStats],
+) -> None:
+    print()
+    print("=" * 100)
+    print("OPENING / STYLE BEHAVIOR SUMMARY")
+    print("=" * 100)
+    print("Per model, aggregated over all games in this evaluation.")
+    print("Q<=10 = average queen moves in first 10 plies.")
+    print("Qout% = games where the queen moved in first 10 plies.")
+    print("Castle% = games where the side castled by ply 20.")
+    print("MinorDev = average developed bishops/knights by ply 10.")
+    print("CtrPawns = average pawns occupying d4/e4/d5/e5 by ply 8.")
+    print()
+
+    print(
+        f"{'model':24s} "
+        f"{'games':>6s} "
+        f"{'Q<=10':>8s} "
+        f"{'Qout%':>8s} "
+        f"{'Castle%':>9s} "
+        f"{'MinorDev':>9s} "
+        f"{'CtrPawns':>9s}"
+    )
+
+    for m in models:
+        s = behavior_stats.get(m.label)
+        if s is None or s.games == 0:
+            continue
+
+        print(
+            f"{m.label:24s} "
+            f"{s.games:6d} "
+            f"{s.avg_queen_moves_10:8.2f} "
+            f"{100.0 * s.queen_out_rate_10:7.1f}% "
+            f"{100.0 * s.castle_rate_20:8.1f}% "
+            f"{s.avg_minor_dev_10:9.2f} "
+            f"{s.avg_center_pawns_8:9.2f}"
+        )
 
 def main() -> None:
     ap = argparse.ArgumentParser()
@@ -1299,6 +1416,8 @@ def main() -> None:
     labels = [m.label for m in models]
     if len(set(labels)) != len(labels):
         raise ValueError("model labels must be unique")
+
+    behavior_stats: dict[str, OpeningBehaviorStats] = defaultdict(OpeningBehaviorStats)
 
     print_models(models)
 
@@ -1393,12 +1512,28 @@ def main() -> None:
                     label=r.black_label,
                 )
 
+            update_opening_behavior_stats(
+                behavior_stats[r.white_label],
+                result=r,
+                label=r.white_label,
+            )
+
+            update_opening_behavior_stats(
+                behavior_stats[r.black_label],
+                result=r,
+                label=r.black_label,
+            )
+
         print_pair_summary(a=a, b=b, stats=stats)
 
     dt = time.time() - t0
 
     print_score_matrix(models=models, stats=stats)
     print_detailed_table(models=models, stats=stats)
+    print_opening_behavior_summary(
+        models=models,
+        behavior_stats=behavior_stats,
+    )
     print_tag_summary(models=models, tag_stats=tag_stats)
 
     print()
@@ -1417,6 +1552,7 @@ def main() -> None:
             results=all_results,
             stats=stats,
             tag_stats=tag_stats,
+            behavior_stats=behavior_stats
         )
 
 

@@ -11,7 +11,8 @@ import time
 from typing import Literal
 
 from chess_core.board import Board
-from chess_core.move import Move
+from chess_core.move import Move, F_CASTLE
+from chess_core.piece import Piece as p
 from chess_rl.rewards.v1_terminal_plus_potential import material_potential
 from chess_rl.agents.base import Agent
 from chess_rl.agents.random import RandomAgent
@@ -39,6 +40,21 @@ class GameResult:
     final_fen: str
     illegal_move: str | None = None
 
+    # Opening/style diagnostics.
+    white_queen_moves_10: int = 0
+    black_queen_moves_10: int = 0
+
+    white_queen_out_10: bool = False
+    black_queen_out_10: bool = False
+
+    white_castled_20: bool = False
+    black_castled_20: bool = False
+
+    white_minor_dev_10: int = 0
+    black_minor_dev_10: int = 0
+
+    white_center_pawns_8: int = 0
+    black_center_pawns_8: int = 0
 
 @dataclass
 class AgentScore:
@@ -196,18 +212,61 @@ def play_game(
 
     plies = 0
 
+    white_queen_moves_10 = 0
+    black_queen_moves_10 = 0
+
+    white_queen_out_10 = False
+    black_queen_out_10 = False
+
+    white_castled_20 = False
+    black_castled_20 = False
+
+    white_minor_dev_10 = _count_developed_minors(board, True)
+    black_minor_dev_10 = _count_developed_minors(board, False)
+
+    white_center_pawns_8 = _count_center_pawns(board, True)
+    black_center_pawns_8 = _count_center_pawns(board, False)
+    center_snapshot_taken = False
+
+    def result(
+        *,
+        winner: Winner,
+        reason: str,
+        illegal_move: str | None = None,
+    ) -> GameResult:
+        return GameResult(
+            game_idx=game_idx,
+            white_label=white_label,
+            black_label=black_label,
+            winner=winner,
+            reason=reason,
+            plies=plies,
+            start_fen=start_fen,
+            final_fen=board.to_fen(),
+            illegal_move=illegal_move,
+
+            white_queen_moves_10=white_queen_moves_10,
+            black_queen_moves_10=black_queen_moves_10,
+
+            white_queen_out_10=white_queen_out_10,
+            black_queen_out_10=black_queen_out_10,
+
+            white_castled_20=white_castled_20,
+            black_castled_20=black_castled_20,
+
+            white_minor_dev_10=white_minor_dev_10,
+            black_minor_dev_10=black_minor_dev_10,
+
+            white_center_pawns_8=white_center_pawns_8,
+            black_center_pawns_8=black_center_pawns_8,
+        )
+
     for _ in range(max_plies):
         done, reason = board.game_end_state()
         if done:
-            return GameResult(
-                game_idx=game_idx,
-                white_label=white_label,
-                black_label=black_label,
+            return result(
                 winner=_winner_from_terminal(board, reason),
                 reason=reason,
-                plies=plies,
-                start_fen=start_fen,
-                final_fen=board.to_fen(),
             )
 
         side_white = board.get_is_white_to_move()
@@ -216,48 +275,76 @@ def play_game(
         try:
             move = agent.pick_move(board)
         except Exception as e:
-            # Agent failed on its turn, so it loses.
             winner: Winner = "black" if side_white else "white"
-            return GameResult(
-                game_idx=game_idx,
-                white_label=white_label,
-                black_label=black_label,
+            return result(
                 winner=winner,
                 reason=f"agent error: {type(e).__name__}: {e}",
-                plies=plies,
-                start_fen=start_fen,
-                final_fen=board.to_fen(),
             )
+
+        if move is None:
+            winner = "black" if side_white else "white"
+            return result(
+                winner=winner,
+                reason="agent returned no move",
+            )
+
+        # ------------------------------------------------------------
+        # Opening/style diagnostics: before applying the chosen move
+        # ------------------------------------------------------------
+        ply_1based = plies + 1
+        mover_white = side_white
+
+        moving_piece = _piece_at(board, move.src_square)
+        moving_type = p.piece_type(moving_piece)
+
+        if ply_1based <= 10 and moving_type == p.QUEEN:
+            if mover_white:
+                white_queen_moves_10 += 1
+                white_queen_out_10 = True
+            else:
+                black_queen_moves_10 += 1
+                black_queen_out_10 = True
+
+        if ply_1based <= 20 and (move.flags & F_CASTLE):
+            if mover_white:
+                white_castled_20 = True
+            else:
+                black_castled_20 = True
 
         move_text = _move_to_uci_like(board, move)
 
         ok = board.make_move(move)
         if not ok:
-            # Illegal move loses.
             winner = "black" if side_white else "white"
-            return GameResult(
-                game_idx=game_idx,
-                white_label=white_label,
-                black_label=black_label,
+            return result(
                 winner=winner,
                 reason="illegal move",
-                plies=plies,
-                start_fen=start_fen,
-                final_fen=board.to_fen(),
                 illegal_move=move_text,
             )
 
         plies += 1
 
-    return GameResult(
-        game_idx=game_idx,
-        white_label=white_label,
-        black_label=black_label,
+        # ------------------------------------------------------------
+        # Opening/style diagnostics: after applying the move
+        # ------------------------------------------------------------
+        if plies <= 10:
+            white_minor_dev_10 = max(
+                white_minor_dev_10,
+                _count_developed_minors(board, True),
+            )
+            black_minor_dev_10 = max(
+                black_minor_dev_10,
+                _count_developed_minors(board, False),
+            )
+
+        if plies >= 8 and not center_snapshot_taken:
+            white_center_pawns_8 = _count_center_pawns(board, True)
+            black_center_pawns_8 = _count_center_pawns(board, False)
+            center_snapshot_taken = True
+
+    return result(
         winner="draw",
         reason="max plies",
-        plies=plies,
-        start_fen=start_fen,
-        final_fen=board.to_fen(),
     )
 
 def material_cp_from_fen(fen: str) -> float:
@@ -674,6 +761,56 @@ def main() -> None:
 
     if args.json_out:
         save_json(args.json_out, results)
+
+CENTER_SQUARES = {
+    27,  # d4
+    28,  # e4
+    35,  # d5
+    36,  # e5
+}
+
+
+def _piece_at(board: Board, sq: int) -> int:
+    piece_at = getattr(board, "piece_at", None)
+    if piece_at is not None:
+        return int(piece_at(sq))
+    return int(board.get_board()[sq])
+
+
+def _count_center_pawns(board: Board, white: bool) -> int:
+    target = p.WHITE_PAWN if white else p.BLACK_PAWN
+    return sum(1 for sq in CENTER_SQUARES if _piece_at(board, sq) == target)
+
+
+def _count_developed_minors(board: Board, white: bool) -> int:
+    """
+    Count bishops/knights not on their home rank.
+
+    White home rank: rank 1 => internal rank 0.
+    Black home rank: rank 8 => internal rank 7.
+
+    This is a simple style metric, not a perfect chess concept.
+    """
+    home_rank = 0 if white else 7
+    count = 0
+
+    for sq, pc_raw in enumerate(board.get_board()):
+        pc = int(pc_raw)
+        if pc == p.NONE:
+            continue
+
+        if p.is_white(pc) != white:
+            continue
+
+        t = p.piece_type(pc)
+        if t not in (p.KNIGHT, p.BISHOP):
+            continue
+
+        rank = sq >> 3
+        if rank != home_rank:
+            count += 1
+
+    return count
 
 
 if __name__ == "__main__":
