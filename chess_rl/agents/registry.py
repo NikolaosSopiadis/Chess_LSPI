@@ -31,7 +31,6 @@ LSPI_V3_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v3_basic_mix_pgn75
 LSPI_V4_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v4_slim_mix_pgn150k_anchor50k_reg1e-1.npz")
 LSPI_V5_100k_CHECKPOINT = Path("data/processed/checkpoints/lspi_v5_center_mix_pgn135k_material50k_center15k_2000elo_reg1e-1.npz")
 LSPI_V5_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v5_center_mix_pgn650k_anchor250k_center100k_2000elo_reg1e-1.npz")
-LSPI_V5_100k_CHECKPOINT = Path("data/processed/checkpoints/lspi_v5_center_mix_pgn135k_material50k_center15k_2000elo_reg1e-1.npz")
 LSPI_V6_100k_CHECKPOINT = Path("data/processed/checkpoints/lspi_v6_attackmap_mix_pgn150k_anchor50k_2000elo_reg1e-1.npz")
 LSPI_V7_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v7_api_tactics_mix_pgn750k_anchor250k_2000elo_reg1e-1.npz")
 
