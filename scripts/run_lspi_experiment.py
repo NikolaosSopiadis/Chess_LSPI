@@ -96,12 +96,15 @@ def normalize_agent_name(name: str) -> str:
 
         "v7": "v7_api_tactics",
         "v7_api_tactics": "v7_api_tactics",
+
+        "v8": "v8_api_tactics_clean",
+        "v8_api_tactics_clean": "v8_api_tactics_clean",
     }
 
     if name in aliases:
         return aliases[name]
 
-    if name.endswith(("_basic", "_slim", "_center", "_api_tactics")):
+    if name.endswith(("_basic", "_slim", "_center", "_api_tactics", "_api_tactics_clean")):
         return name
 
     if name.startswith("v"):

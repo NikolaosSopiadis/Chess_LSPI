@@ -382,6 +382,55 @@ FEATURE_NAMES: dict[str, list[str]] = {
         "unsafe_capture_liability_diff",
         "queen_tempo_threat_diff",
         "queen_tempo_threat_by_minor_or_pawn_diff",
+    ],
+    
+    "v8_api_tactics_clean": [
+        "bias",
+        "pawn_diff",
+        "knight_diff",
+        "bishop_diff",
+        "rook_diff",
+        "queen_diff",
+        "side_to_move_pm",
+        "white_in_check",
+        "black_in_check",
+        "mobility_diff",
+        "attacked_material_diff",
+        "hanging_material_diff",
+        "king_pressure_diff",
+        "pawn_advancement_diff",
+        "passed_pawn_diff",
+        "promotion_pressure_diff",
+        "terminal_checkmate_white_wins",
+        "terminal_checkmate_black_wins",
+        "white_ahead_draw_terminal",
+        "black_ahead_draw_terminal",
+        "white_ahead_repeat_risk",
+        "black_ahead_repeat_risk",
+        "halfmove_pressure_white_ahead",
+        "halfmove_pressure_black_ahead",
+        "castled_diff",
+        "king_walked_uncastled_diff",
+        "pawn_shield_diff",
+        "king_zone_safety_diff",
+        "open_file_safety_diff",
+        "development_diff",
+        "queen_development_diff",
+        "white_castled",
+        "black_castled",
+        "white_pawn_shield",
+        "black_pawn_shield",
+        "white_king_zone_attacked",
+        "black_king_zone_attacked",
+
+        # v8 additions
+        "legal_checking_moves_diff",
+        "safe_checking_moves_diff",
+        "mate_in_one_threat_diff",
+        "safe_capture_value_diff",
+        "unsafe_capture_liability_diff",
+        "queen_tempo_threat_diff",
+        "queen_tempo_threat_by_minor_or_pawn_diff",
     ]
 
 }
@@ -442,6 +491,9 @@ def infer_feature_version(w: np.ndarray, meta: dict[str, Any]) -> str:
 
     if len(w) == 64:
         return "v7_api_tactics"
+    
+    if len(w) == 44:
+        return "v8_api_tactics_clean"
 
     return "unknown"
 
@@ -473,6 +525,7 @@ def print_effective_piece_values(feature_version: str, w: np.ndarray) -> None:
         "v5_center",
         "v6_attackmap",
         "v7_api_tactics",
+        "v8_api_tactics_clean",
     ):
         pawn = float(w[1]) / 8.0
         knight = float(w[2]) / 2.0
