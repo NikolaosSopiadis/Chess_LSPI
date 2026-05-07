@@ -523,6 +523,65 @@ FEATURE_NAMES: dict[str, list[str]] = {
         "white_castle_ready_opening",
         "black_castle_ready_opening",
         "castle_readiness_diff",
+    ],
+    
+    "v10_response_fast": [
+        "bias",
+        "pawn_diff",
+        "knight_diff",
+        "bishop_diff",
+        "rook_diff",
+        "queen_diff",
+        "side_to_move_pm",
+        "white_in_check",
+        "black_in_check",
+        "mobility_diff",
+        "attacked_material_diff",
+        "hanging_material_diff",
+        "king_pressure_diff",
+        "pawn_advancement_diff",
+        "passed_pawn_diff",
+        "promotion_pressure_diff",
+        "terminal_checkmate_white_wins",
+        "terminal_checkmate_black_wins",
+        "white_ahead_draw_terminal",
+        "black_ahead_draw_terminal",
+        "white_ahead_repeat_risk",
+        "black_ahead_repeat_risk",
+        "halfmove_pressure_white_ahead",
+        "halfmove_pressure_black_ahead",
+        "castled_diff",
+        "king_walked_uncastled_diff",
+        "pawn_shield_diff",
+        "king_zone_safety_diff",
+        "open_file_safety_diff",
+        "development_diff",
+        "queen_development_diff",
+        "white_castled",
+        "black_castled",
+        "white_pawn_shield",
+        "black_pawn_shield",
+        "white_king_zone_attacked",
+        "black_king_zone_attacked",
+
+        "white_legal_checking_moves",
+        "black_legal_checking_moves",
+        "white_safe_checking_moves",
+        "black_safe_checking_moves",
+        "white_mate_in_one_moves",
+        "black_mate_in_one_moves",
+        "white_safe_capture_value",
+        "black_safe_capture_value",
+        "white_best_safe_capture_value",
+        "black_best_safe_capture_value",
+        "stm_safe_capture_value_pm",
+        "stm_best_safe_capture_value_pm",
+        "stm_safe_checking_moves_pm",
+        "stm_mate_in_one_moves_pm",
+        "ntm_safe_capture_value_pm",
+        "ntm_best_safe_capture_value_pm",
+        "ntm_safe_checking_moves_pm",
+        "ntm_mate_in_one_moves_pm",
     ]
 
 }
@@ -590,6 +649,9 @@ def infer_feature_version(w: np.ndarray, meta: dict[str, Any]) -> str:
     if len(w) == 80:
         return "v9_response_tactics"
 
+    if len(w) == 55:
+        return "v10_response_fast"
+
     return "unknown"
 
 
@@ -622,6 +684,7 @@ def print_effective_piece_values(feature_version: str, w: np.ndarray) -> None:
         "v7_api_tactics",
         "v8_api_tactics_clean",
         "v9_response_tactics",
+        "v10_response_fast",
     ):
         pawn = float(w[1]) / 8.0
         knight = float(w[2]) / 2.0

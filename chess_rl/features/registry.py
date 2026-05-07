@@ -11,6 +11,7 @@ from chess_rl.features.v6_attackmap import V6AttackMapFeatures
 from chess_rl.features.v7_api_tactics import V7ApiTacticsFeatures
 from chess_rl.features.v8_api_tactics_clean import V8ApiTacticsCleanFeatures
 from chess_rl.features.v9_response_tactics import V9ResponseTacticsFeatures
+from chess_rl.features.v10_response_fast import V10ResponseFastFeatures
 
 
 _FEATURES: dict[str, type[FeatureExtractor]] = {
@@ -24,6 +25,7 @@ _FEATURES: dict[str, type[FeatureExtractor]] = {
     "v7_api_tactics": V7ApiTacticsFeatures,
     "v8_api_tactics_clean": V8ApiTacticsCleanFeatures,
     "v9_response_tactics": V9ResponseTacticsFeatures,
+    "v10_response_fast": V10ResponseFastFeatures,
 }
 
 

@@ -102,6 +102,9 @@ def normalize_agent_name(name: str) -> str:
 
         "v9": "v9_response_tactics",
         "v9_response_tactics": "v9_response_tactics",
+
+        "v10": "v10_response_fast",
+        "v10_response_fast": "v10_response_fast",
     }
 
     if name in aliases:
