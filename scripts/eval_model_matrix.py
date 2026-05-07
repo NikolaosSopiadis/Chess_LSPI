@@ -125,8 +125,11 @@ def canonical_kind(kind: str) -> str:
     if k == "random":
         return "random"
 
-    if k in ("material", "material_greedy", "greedy_material", "material_minimax"):
+    if k in ("material", "material_greedy", "greedy_material"):
         return "material"
+
+    if k in ("material_minimax", "minimax", "material_search"):
+        return "material_search"
 
     if k in ("plain", "lspi_plain", "lspi_v1", "v3.0", "v4.0", "v5.0_1800", "v5.0_2000"):
         return "plain"
