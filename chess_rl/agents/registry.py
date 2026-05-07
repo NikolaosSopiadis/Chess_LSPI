@@ -8,6 +8,7 @@ from chess_rl.agents.lspi_v1 import LSPIV1Agent
 from chess_rl.agents.material_greedy import MaterialGreedyAgent
 from chess_rl.agents.lspi_tactical import LSPITacticalAgent
 from chess_rl.agents.lspi_search import LSPISearchAgent
+from chess_rl.agents.material_minimax import MaterialMinimaxAgent
 
 
 HUMAN = "Human"
@@ -24,12 +25,15 @@ LSPI_V4_1M = "LSPI v4.0"
 LSPI_V3_SEARCH_1M = "LSPI v3.2 Search"
 LSPI_V3_TACTICAL_1M = "LSPI v3.1 Tactical"    
 LSPI_V3_1M = "LSPI v3.0"    
+LSPI_V2_1M = "LSPI v2.0"    
 LSPI_V1 = "LSPI v1"
+MINIMAX = "Material minimax"
 GREEDY = "Material greedy"
 RANDOM = "Random legal"
 
 # Adjust this path whenever you want to test a different checkpoint.
 LSPI_V1_CHECKPOINT = Path("data/processed/checkpoints/lspi_v1_basic_pgn_200k_reg1e-1.npz")
+LSPI_V2_CHECKPOINT = Path("data/processed/checkpoints/lspi_v2_1_basic_mix_pgn900k_anchor100k_reg1e-1.npz")
 LSPI_V3_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v3_basic_mix_pgn750k_anchor250k_reg1e-1.npz")
 LSPI_V4_1M_CHECKPOINT = Path("data/processed/checkpoints/lspi_v4_slim_mix_pgn150k_anchor50k_reg1e-1.npz")
 LSPI_V5_100k_CHECKPOINT = Path("data/processed/checkpoints/lspi_v5_center_mix_pgn135k_material50k_center15k_2000elo_reg1e-1.npz")
@@ -57,6 +61,7 @@ def player_options() -> list[str]:
         LSPI_V3_TACTICAL_1M,
         LSPI_V3_1M,
         LSPI_V1,
+        MINIMAX,
         GREEDY,
         RANDOM,
     ]
@@ -76,6 +81,12 @@ def make_player(player_id: str) -> Agent | None:
 
     if player_id == GREEDY:
         return MaterialGreedyAgent()
+
+    if player_id == MINIMAX:
+        return MaterialMinimaxAgent(
+            depth=2,
+            seed=1,
+        )
 
     if player_id == LSPI_V1:
         if not LSPI_V1_CHECKPOINT.exists():

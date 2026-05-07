@@ -73,6 +73,9 @@ def normalize_agent_name(name: str) -> str:
     name = name.strip()
 
     aliases = {
+        "material_minimax": "material_minimax",
+        "minimax": "material_minimax",
+        
         "v1": "v1_basic",
         "v1_basic": "v1_basic",
 

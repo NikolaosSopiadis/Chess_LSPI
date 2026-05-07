@@ -19,6 +19,7 @@ from chess_rl.agents.random import RandomAgent
 from chess_rl.agents.material_greedy import MaterialGreedyAgent
 from chess_rl.agents.lspi_v1 import LSPIV1Agent
 from chess_rl.agents.lspi_tactical import LSPITacticalAgent
+from chess_rl.agents.material_minimax import MaterialMinimaxAgent
 
 try:
     from chess_rl.agents.lspi_search import LSPISearchAgent
@@ -124,7 +125,7 @@ def canonical_kind(kind: str) -> str:
     if k == "random":
         return "random"
 
-    if k in ("material", "material_greedy", "greedy_material"):
+    if k in ("material", "material_greedy", "greedy_material", "material_minimax"):
         return "material"
 
     if k in ("plain", "lspi_plain", "lspi_v1", "v3.0", "v4.0", "v5.0_1800", "v5.0_2000"):
@@ -243,6 +244,12 @@ def make_agent(spec: ModelSpec, *, seed: int) -> Agent:
 
     if spec.kind == "material":
         return MaterialGreedyAgent(seed=seed)
+
+    if spec.kind == "material_search":
+        return MaterialMinimaxAgent(
+            depth=spec.search_depth,
+            seed=seed,
+        )
 
     if spec.path is None:
         raise ValueError(f"model {spec.label!r} requires a checkpoint path")
@@ -1021,6 +1028,8 @@ def print_models(models: list[ModelSpec]) -> None:
             print(f"  search_draw_safety: {m.search_use_draw_safety}")
             print(f"  search_tactical_safety: {m.search_use_tactical_safety}")
 
+        if m.kind in ("search", "material_search"):
+            print(f"  search_depth: {m.search_depth}")
 
 def print_position_summary(positions: list[StartPosition]) -> None:
     tag_counts: Counter[str] = Counter()
@@ -1120,6 +1129,80 @@ def print_score_matrix(
 
         print(line)
 
+def print_wdl_matrix(
+    *,
+    models: list[ModelSpec],
+    stats: dict[tuple[str, str], OrderedStats],
+) -> None:
+    labels = [m.label for m in models]
+
+    print()
+    print("=" * 100)
+    print("W-D-L MATRIX")
+    print("=" * 100)
+    print("Rows are scored from the row model's perspective.")
+
+    width = max(10, max(len(x) for x in labels) + 2)
+
+    header = " " * width
+    for label in labels:
+        header += f"{label:>{width}s}"
+    print(header)
+
+    for row in labels:
+        line = f"{row:>{width}s}"
+
+        for col in labels:
+            if row == col:
+                cell = "—"
+            else:
+                s = stats.get((row, col))
+                if s is None or s.games == 0:
+                    cell = "—"
+                else:
+                    cell = f"{s.wins}-{s.draws}-{s.losses}"
+
+            line += f"{cell:>{width}s}"
+
+        print(line)
+
+
+def print_avg_plies_matrix(
+    *,
+    models: list[ModelSpec],
+    stats: dict[tuple[str, str], OrderedStats],
+) -> None:
+    labels = [m.label for m in models]
+
+    print()
+    print("=" * 100)
+    print("AVG PLIES MATRIX")
+    print("=" * 100)
+    print("Average game length for each ordered matchup.")
+
+    width = max(10, max(len(x) for x in labels) + 2)
+
+    header = " " * width
+    for label in labels:
+        header += f"{label:>{width}s}"
+    print(header)
+
+    for row in labels:
+        line = f"{row:>{width}s}"
+
+        for col in labels:
+            if row == col:
+                cell = "—"
+            else:
+                s = stats.get((row, col))
+                if s is None or s.games == 0:
+                    cell = "—"
+                else:
+                    cell = f"{s.avg_plies:.1f}"
+
+            line += f"{cell:>{width}s}"
+
+        print(line)
 
 def print_detailed_table(
     *,
@@ -1256,6 +1339,74 @@ def save_json(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"\nSaved JSON: {out}")
+
+def save_compact_json(
+    *,
+    path: str,
+    models: list[ModelSpec],
+    start_positions: list[StartPosition],
+    stats: dict[tuple[str, str], OrderedStats],
+) -> None:
+    labels = [m.label for m in models]
+
+    def stat_payload(s: OrderedStats | None) -> dict[str, Any] | None:
+        if s is None or s.games == 0:
+            return None
+
+        return {
+            "games": s.games,
+            "wins": s.wins,
+            "draws": s.draws,
+            "losses": s.losses,
+            "wdl": f"{s.wins}-{s.draws}-{s.losses}",
+            "score": s.score_rate,
+            "avg_plies": s.avg_plies,
+            "reasons": dict(s.reasons),
+        }
+
+    score_matrix: dict[str, dict[str, float | None]] = {}
+    wdl_matrix: dict[str, dict[str, str | None]] = {}
+    avg_plies_matrix: dict[str, dict[str, float | None]] = {}
+
+    for row in labels:
+        score_matrix[row] = {}
+        wdl_matrix[row] = {}
+        avg_plies_matrix[row] = {}
+
+        for col in labels:
+            if row == col:
+                score_matrix[row][col] = None
+                wdl_matrix[row][col] = None
+                avg_plies_matrix[row][col] = None
+                continue
+
+            s = stats.get((row, col))
+
+            if s is None or s.games == 0:
+                score_matrix[row][col] = None
+                wdl_matrix[row][col] = None
+                avg_plies_matrix[row][col] = None
+            else:
+                score_matrix[row][col] = s.score_rate
+                wdl_matrix[row][col] = f"{s.wins}-{s.draws}-{s.losses}"
+                avg_plies_matrix[row][col] = s.avg_plies
+
+    payload: dict[str, Any] = {
+        "models": [asdict(m) for m in models],
+        "position_count": len(start_positions),
+        "stats": {
+            f"{a}__vs__{b}": stat_payload(s)
+            for (a, b), s in stats.items()
+        },
+        "score_matrix": score_matrix,
+        "wdl_matrix": wdl_matrix,
+        "avg_plies_matrix": avg_plies_matrix,
+    }
+
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"\nSaved compact JSON: {out}")
 
 def update_opening_behavior_stats(
     stats: OpeningBehaviorStats,
@@ -1407,6 +1558,32 @@ def main() -> None:
         help="Fallback text progress interval when tqdm is disabled/unavailable.",
     )
 
+    ap.add_argument(
+        "--compact-report",
+        action="store_true",
+        help=(
+            "Print only compact report output: pair summaries, score matrix, "
+            "W-D-L matrix, avg plies matrix, and detailed ordered results. "
+            "Suppresses position listing, opening behavior, and tag summaries."
+        ),
+    )
+
+    ap.add_argument(
+        "--compact-json",
+        action="store_true",
+        help="Write compact JSON without per-game results or tag tables.",
+    )
+
+    ap.add_argument(
+        "--pair-mode",
+        choices=["all", "adjacent"],
+        default="all",
+        help=(
+            "all = round-robin all unordered pairs. "
+            "adjacent = only model[i] vs model[i+1], useful for model ladders."
+        ),
+    )
+
     ap.add_argument("--json-out", default=None)
 
     args = ap.parse_args()
@@ -1443,17 +1620,34 @@ def main() -> None:
         seed=args.seed,
     )
 
-    print_position_summary(start_positions)
+    if args.compact_report:
+        print()
+        print("=" * 100)
+        print("POSITIONS")
+        print("=" * 100)
+        print(f"positions used: {len(start_positions)}")
+    else:
+        print_position_summary(start_positions)
 
     stats: dict[tuple[str, str], OrderedStats] = defaultdict(OrderedStats)
     tag_stats: dict[tuple[str, str, str], OrderedStats] = defaultdict(OrderedStats)
 
     all_results: list[GameResult] = []
 
-    if args.include_self:
-        pairs = list(itertools.combinations_with_replacement(models, 2))
+    if args.pair_mode == "adjacent":
+        if args.include_self:
+            raise ValueError("--include-self does not make sense with --pair-mode adjacent")
+
+        if len(models) < 2:
+            raise ValueError("--pair-mode adjacent needs at least two models")
+
+        pairs = list(zip(models[:-1], models[1:]))
+
     else:
-        pairs = list(itertools.combinations(models, 2))
+        if args.include_self:
+            pairs = list(itertools.combinations_with_replacement(models, 2))
+        else:
+            pairs = list(itertools.combinations(models, 2))
 
     t0 = time.time()
     game_idx = 1
@@ -1529,12 +1723,17 @@ def main() -> None:
     dt = time.time() - t0
 
     print_score_matrix(models=models, stats=stats)
+    print_wdl_matrix(models=models, stats=stats)
+    print_avg_plies_matrix(models=models, stats=stats)
     print_detailed_table(models=models, stats=stats)
-    print_opening_behavior_summary(
-        models=models,
-        behavior_stats=behavior_stats,
-    )
-    print_tag_summary(models=models, tag_stats=tag_stats)
+
+    if not args.compact_report:
+        print_opening_behavior_summary(
+            models=models,
+            behavior_stats=behavior_stats,
+        )
+
+        print_tag_summary(models=models, tag_stats=tag_stats)
 
     print()
     print("=" * 100)
@@ -1545,15 +1744,23 @@ def main() -> None:
     print(f"games/sec:   {len(all_results) / max(dt, 1e-9):.2f}")
 
     if args.json_out:
-        save_json(
-            path=args.json_out,
-            models=models,
-            start_positions=start_positions,
-            results=all_results,
-            stats=stats,
-            tag_stats=tag_stats,
-            behavior_stats=behavior_stats
-        )
+        if args.compact_json or args.compact_report:
+            save_compact_json(
+                path=args.json_out,
+                models=models,
+                start_positions=start_positions,
+                stats=stats,
+            )
+        else:
+            save_json(
+                path=args.json_out,
+                models=models,
+                start_positions=start_positions,
+                results=all_results,
+                stats=stats,
+                tag_stats=tag_stats,
+                behavior_stats=behavior_stats,
+            )
 
 
 if __name__ == "__main__":
