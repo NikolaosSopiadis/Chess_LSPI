@@ -16,9 +16,9 @@ LSPI_V10_SEARCH_200k = "LSPI v10.2 200k Search"
 LSPI_V9_SEARCH_200k = "LSPI v9.2 200k Search"
 LSPI_V8_SEARCH_200k = "LSPI v8.2 200k Search"
 LSPI_V7_SEARCH_1M = "LSPI v7.2 1M Search"
-LSPI_V6_SEARCH_100k = "LSPI v6.2 100k Search"
+LSPI_V6_SEARCH_200k = "LSPI v6.2 200k Search"
 LSPI_V5_SEARCH_1M = "LSPI v5.2 1M Search" # center
-LSPI_V5_SEARCH_100k = "LSPI v5.2 100k Search" #center
+LSPI_V5_SEARCH_200k = "LSPI v5.2 200k Search" #center
 LSPI_V4_SEARCH_1M = "LSPI v4.2 Search"
 LSPI_V4_TACTICAL_1M = "LSPI v4.1 Tactical"    
 LSPI_V4_1M = "LSPI v4.0"    
@@ -51,8 +51,8 @@ def player_options() -> list[str]:
         LSPI_V9_SEARCH_200k,
         LSPI_V8_SEARCH_200k,
         LSPI_V7_SEARCH_1M,
-        LSPI_V6_SEARCH_100k,
-        LSPI_V5_SEARCH_100k,
+        LSPI_V6_SEARCH_200k,
+        LSPI_V5_SEARCH_200k,
         LSPI_V5_SEARCH_1M,
         LSPI_V4_SEARCH_1M,
         LSPI_V4_TACTICAL_1M,
@@ -137,7 +137,7 @@ def make_player(player_id: str) -> Agent | None:
             use_tactical_safety=False,
         )
 
-    if player_id == LSPI_V5_SEARCH_100k:
+    if player_id == LSPI_V5_SEARCH_200k:
         if not LSPI_V5_100k_CHECKPOINT.exists():
             raise FileNotFoundError(f"Missing LSPI v5 100k checkpoint: {LSPI_V5_100k_CHECKPOINT}")
 
@@ -161,7 +161,7 @@ def make_player(player_id: str) -> Agent | None:
             use_tactical_safety=False,
         )
 
-    if player_id == LSPI_V6_SEARCH_100k:
+    if player_id == LSPI_V6_SEARCH_200k:
         if not LSPI_V6_100k_CHECKPOINT.exists():
             raise FileNotFoundError(f"Missing LSPI v6 100k checkpoint: {LSPI_V6_100k_CHECKPOINT}")
 
